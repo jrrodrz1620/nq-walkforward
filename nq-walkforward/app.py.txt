@@ -1,0 +1,364 @@
+import streamlit as st
+import yfinance as yf
+import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
+from datetime import datetime, timedelta
+
+# ------------------------------------------------------------------
+# CONFIGURATION & PAGE SETUP
+# ------------------------------------------------------------------
+st.set_page_config(
+    page_title="NQ Multi-VWAP Cyan Hold WFA",
+    page_icon="🚀",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+st.markdown("""
+<style>
+    .stApp { background-color: #0E1117; }
+    .main { color: #FAFAFA; }
+    h1, h2, h3 { color: #FFFFFF; }
+    [data-testid="stMetricValue"] { color: #00E5FF; font-size: 1.5rem; }
+    [data-testid="stMetricLabel"] { color: #B0B0B0; }
+</style>
+""", unsafe_allow_html=True)
+
+# ------------------------------------------------------------------
+# HELPER FUNCTIONS
+# ------------------------------------------------------------------
+
+@st.cache_data
+def get_data(ticker, start, end):
+    """Download Daily Data and resample to 4H for HTF filter."""
+    df_daily = yf.download(ticker, start=start, end=end, progress=False)
+    if isinstance(df_daily.columns, pd.MultiIndex):
+        df_daily.columns = df_daily.columns.droplevel(1)
+    
+    # Create 4H Data for HTF Trend Filter
+    df_4h = df_daily.resample('4H').agg({
+        'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'
+    }).dropna()
+    
+    return df_daily, df_4h
+
+def calculate_vwap(df, period):
+    """Calculate Rolling VWAP."""
+    src = (df['High'] + df['Low'] + df['Close']) / 3
+    # Rolling VWAP = SMA(src * vol) / SMA(vol)
+    vw = (src * df['Volume']).rolling(window=period).sum() / df['Volume'].rolling(window=period).sum()
+    return vw
+
+def calculate_atr(df, period=14):
+    """Average True Range."""
+    high_low = df['High'] - df['Low']
+    high_close = np.abs(df['High'] - df['Close'].shift())
+    low_close = np.abs(df['Low'] - df['Close'].shift())
+    ranges = pd.concat([high_low, high_close, low_close], axis=1)
+    true_range = ranges.max(axis=1)
+    return true_range.rolling(window=period).mean()
+
+def run_vwap_backtest(df_daily, df_4h, tp_points, sl_points, atr_buffer, mode='V50'):
+    """
+    Executes the MultiVWAP Cyan Hold Strategy.
+    Returns: Series of Net Returns.
+    """
+    # 1. Indicators (Daily)
+    df = df_daily.copy()
+    df['ATR'] = calculate_atr(df, 14)
+    df['VWAP9'] = calculate_vwap(df, 9)
+    df['VWAP20'] = calculate_vwap(df, 20)
+    df['VWAP50'] = calculate_vwap(df, 50)
+    
+    # 2. HTF Trend Filter (4H)
+    # We align the 4H trend to the Daily timeframe using asof
+    df_4h['VWAP20_4H'] = calculate_vwap(df_4h, 20)
+    df_4h['Trend'] = np.where(df_4h['Close'] > df_4h['VWAP20_4H'], 1, 0)
+    # Merge 4H trend back to Daily (using Close time as key)
+    # Note: This is a simplification; ideally we check previous 4H candle close
+    df['HTF_Bull'] = 0 
+    # Simple approx: Check if last 4H close was bullish
+    for date in df.index:
+        last_4h_date = df_4h.loc[:date].index.max()
+        if not pd.isna(last_4h_date):
+            df.loc[date, 'HTF_Bull'] = df_4h.loc[last_4h_date, 'Trend']
+            
+    # 3. Volume Filter
+    vol_ma = df['Volume'].rolling(20).mean()
+    vol_spike = df['Volume'] > (vol_ma * 1.2)
+    
+    # 4. Signal Logic
+    buf = df['ATR'] * atr_buffer
+    
+    if mode == 'V50':
+        # V50 Hold: Low touches V50 + Buffer, Close > V50
+        entry_long = (df['Low'] <= df['VWAP50'] + buf) & (df['Close'] > df['VWAP50'])
+    elif mode == 'Stack':
+        # Stack: Price > V9 > V20 > V50
+        entry_long = (df['Close'] > df['VWAP9']) & (df['VWAP9'] > df['VWAP20']) & (df['VWAP20'] > df['VWAP50'])
+        # Add "Hold" aspect for Stack (Price came down to V9/V20 but held)
+        # For simplicity in optimization, we use alignment entry.
+    
+    # Filters
+    entry_signal = entry_long & vol_spike & (df['HTF_Bull'] == 1)
+    
+    # 5. Position Management (TP/SL)
+    returns = pd.Series(0.0, index=df.index)
+    position = 0.0 # 0 = Flat, 1 = Long
+    entry_price = 0.0
+    
+    # Loop is necessary for specific price-based TP/SL
+    for i in range(1, len(df)):
+        if position == 0:
+            if entry_signal.iloc[i]:
+                position = 1
+                entry_price = df['Close'].iloc[i]
+        else:
+            # Calculate Unrealized P&L
+            pnl = (df['Close'].iloc[i] - entry_price)
+            
+            # Exit Logic
+            hit_tp = pnl >= tp_points
+            hit_sl = pnl <= -sl_points
+            
+            if hit_tp or hit_sl:
+                # Calculate return for this trade
+                # Return % = (Exit - Entry) / Entry
+                trade_ret = pnl / entry_price
+                returns.iloc[i] = trade_ret
+                position = 0
+                entry_price = 0.0
+                
+    # 6. Costs (0.10% Fee + 0.05% Slippage = 0.15% per side = 0.30% round trip)
+    # We deduct 0.0015 from the return when we trade (when return != 0)
+    # However, my return calc is pure pnl %. So:
+    net_returns = returns.copy()
+    mask = net_returns != 0
+    net_returns[mask] = net_returns[mask] - 0.0030 
+    
+    return net_returns
+
+def optimize_params(df_daily, df_4h, tp_range, sl_range, atr_range, mode):
+    """
+    Grid Search Optimization on Training Data.
+    Optimizes: TP Points, SL Points, ATR Buffer.
+    """
+    best_ret = -np.inf
+    best_params = {}
+    best_is_series = pd.Series(dtype=float)
+    
+    for tp in tp_range:
+        for sl in sl_range:
+            for atr in atr_range:
+                try:
+                    # Run strategy
+                    rets = run_vwap_backtest(df_daily, df_4h, tp, sl, atr, mode)
+                    total_ret = rets.sum()
+                    
+                    if total_ret > best_ret:
+                        best_ret = total_ret
+                        best_params = {'TP': tp, 'SL': sl, 'ATR': atr}
+                        best_is_series = rets
+                except:
+                    continue
+                    
+    return best_params, best_is_series
+
+# ------------------------------------------------------------------
+# MAIN APP
+# ------------------------------------------------------------------
+
+st.title("🚀 NQ Multi-VWAP Cyan Hold Walk-Forward")
+st.markdown("### Optimizing V9/V20/V50 Bounces & Stack Alignment")
+
+# Sidebar Inputs
+with st.sidebar:
+    st.header("Strategy Settings")
+    
+    ticker = st.text_input("Ticker", value="NQ=F", help="E-mini Nasdaq Continuous")
+    start_date = st.date_input("Start Date", value=datetime(2018, 1, 1))
+    end_date = st.date_input("End Date", value=datetime.today())
+    
+    st.subheader("Mode")
+    mode = st.selectbox("Signal Type", ['V50 Hold (Conservative)', 'Stack (Aggressive)'], 
+                      format_func=lambda x: 'V50 Hold' if 'V50' in x else 'Stack')
+    
+    st.subheader("Walk-Forward Settings")
+    train_months = st.slider("Training Window (Months)", 6, 24, 12)
+    test_months = st.slider("Test Window (Months)", 1, 6, 3)
+    
+    st.subheader("Optimization Grid")
+    tp_range = st.slider("TP Points", (10, 60), (20, 40))
+    sl_range = st.slider("SL Points", (5, 30), (10, 20))
+    atr_range = st.slider("ATR Buffer %", (0.1, 0.8), (0.2, 0.5), step=0.1)
+    
+    st.info("Cost: 0.10% Fee + 0.05% Slippage\nTotal Round Trip: 0.30%")
+
+# Run Button
+if st.button("Run Walk-Forward Analysis"):
+    
+    # 1. Load Data
+    with st.spinner("Downloading historical data (Daily & 4H)..."):
+        df_daily, df_4h = get_data(ticker, start_date, end_date)
+        if df_daily.empty:
+            st.error("No data found.")
+            st.stop()
+            
+    st.success(f"Loaded {len(df_daily)} Daily bars and {len(df_4h)} 4H bars of {ticker}")
+    
+    # 2. Define Windows
+    train_size = train_months * 21
+    test_size = test_months * 21
+    step_size = test_size
+    
+    oos_returns_master = pd.Series(0.0, index=df_daily.index)
+    is_returns_master = pd.Series(0.0, index=df_daily.index)
+    
+    gantt_data = []
+    fold_count = 0
+    total_folds = 0
+    
+    # Pre-calculate total folds for progress bar
+    temp_idx = 0
+    while temp_idx + train_size + test_size < len(df_daily):
+        total_folds += 1
+        temp_idx += step_size
+        
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    # 3. Walk-Forward Loop
+    current_idx = 0
+    
+    while current_idx + train_size + test_size < len(df_daily):
+        
+        train_start = current_idx
+        train_end = current_idx + train_size
+        test_start = train_end
+        test_end = train_end + test_size
+        
+        train_daily = df_daily.iloc[train_start:train_end].copy()
+        # Align 4H data relative to training window (include some history)
+        train_4h = df_4h.loc[df_4h.index <= train_daily.index[-1]].copy()
+        
+        test_daily = df_daily.iloc[test_start:test_end].copy()
+        test_4h = df_4h.loc[df_4h.index <= test_daily.index[-1]].copy()
+        
+        # OPTIMIZATION (In-Sample)
+        best_params, best_is = optimize_params(
+            train_daily, train_4h, 
+            range(tp_range[0], tp_range[1]+1),
+            range(sl_range[0], sl_range[1]+1),
+            np.arange(atr_range[0], atr_range[1]+0.1, 0.1),
+            'V50' if 'V50' in mode else 'Stack'
+        )
+        
+        # TESTING (Out-of-Sample)
+        # Use Best Params from Training on Test Data
+        oos_ret = run_vwap_backtest(
+            test_daily, test_4h, 
+            best_params['TP'], best_params['SL'], best_params['ATR'],
+            'V50' if 'V50' in mode else 'Stack'
+        )
+        
+        # Stitch Returns
+        # IS: Fill training window (Blue on Gantt)
+        # OOS: Fill test window (Orange on Gantt)
+        oos_returns_master.iloc[test_start:test_end] = oos_ret
+        is_returns_master.iloc[train_start:train_end] = best_is
+        
+        # Store Gantt Data
+        gantt_data.append(dict(Task=f"Fold {fold_count+1} (Train)", Start=df_daily.index[train_start], Finish=df_daily.index[train_end], Type="IS"))
+        gantt_data.append(dict(Task=f"Fold {fold_count+1} (Test)", Start=df_daily.index[test_start], Finish=df_daily.index[test_end], Type="OOS"))
+        
+        # Update Progress
+        fold_count += 1
+        pct = fold_count / total_folds
+        progress_bar.progress(pct)
+        status_text.text(f"Processing Fold {fold_count}/{total_folds}... TP: {best_params['TP']} | SL: {best_params['SL']}")
+        
+        current_idx += step_size
+        
+    progress_bar.empty()
+    status_text.empty()
+    
+    # 4. Metrics & Visualization
+    oos_returns_master.replace(0, np.nan, inplace=True)
+    is_returns_master.replace(0, np.nan, inplace=True)
+    
+    # Buy & Hold Benchmark
+    df_daily['BH_Ret'] = df_daily['Close'].pct_change()
+    
+    # Calculate Cumulative Returns (re-investing profits)
+    # We assume 1 unit capital start.
+    oos_cum = (1 + oos_returns_master).fillna(1).cumprod()
+    is_cum = (1 + is_returns_master).fillna(1).cumprod()
+    bh_cum = (1 + df_daily['BH_Ret']).fillna(1).cumprod()
+    
+    # Normalize Cumulative to start at 1.0 for visualization
+    oos_cum = oos_cum / oos_cum.iloc[0]
+    is_cum = is_cum / is_cum.iloc[0]
+    bh_cum = bh_cum / bh_cum.iloc[0]
+    
+    # Metrics Calculation (OOS only)
+    total_ret = (oos_cum.iloc[-1] - 1) * 100
+    sharpe = oos_returns_master.mean() / oos_returns_master.std() * np.sqrt(252)
+    max_dd = (oos_cum / oos_cum.cummax() - 1).min() * 100
+    
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total OOS Return", f"{total_ret:.2f}%")
+    c2.metric("Sharpe Ratio", f"{sharpe:.2f}")
+    c3.metric("Max Drawdown", f"{max_dd:.2f}%", delta_color="inverse")
+    
+    st.subheader("Walk-Forward Gantt Chart")
+    gantt_df = pd.DataFrame(gantt_data)
+    fig_gantt = go.Figure()
+    
+    # Blue for Training (IS), Orange for Testing (OOS)
+    fig_gantt.add_trace(go.Bar(
+        x=gantt_df[gantt_df['Type']=='IS']['Finish'],
+        y=gantt_df[gantt_df['Type']=='IS']['Task'],
+        base=gantt_df[gantt_df['Type']=='IS']['Start'],
+        marker_color='#1f77b4', # Blue
+        name='Training Window (IS)'
+    ))
+    
+    fig_gantt.add_trace(go.Bar(
+        x=gantt_df[gantt_df['Type']=='OOS']['Finish'],
+        y=gantt_df[gantt_df['Type']=='OOS']['Task'],
+        base=gantt_df[gantt_df['Type']=='OOS']['Start'],
+        marker_color='#ff7f0e', # Orange
+        name='Testing Window (OOS)'
+    ))
+    
+    fig_gantt.update_layout(barmode='overlay', template='plotly_dark', height=600)
+    st.plotly_chart(fig_gantt, use_container_width=True)
+    
+    st.subheader("Retail In-Sample vs Walk-Forward OOS Equity Curve")
+    
+    fig_equity = go.Figure()
+    
+    # Plot IS (Blue) - Represents the "Curve Fitted" Dream
+    fig_equity.add_trace(go.Scatter(
+        x=is_cum.index, y=is_cum,
+        mode='lines', name='Retail In-Sample (Optimized)',
+        line=dict(color='#1f77b4', width=2)
+    ))
+    
+    # Plot OOS (Orange) - Represents Reality
+    fig_equity.add_trace(go.Scatter(
+        x=oos_cum.index, y=oos_cum,
+        mode='lines', name='Walk-Forward OOS (Stitched)',
+        line=dict(color='#ff7f0e', width=2)
+    ))
+    
+    # Plot Buy & Hold (Gray)
+    fig_equity.add_trace(go.Scatter(
+        x=bh_cum.index, y=bh_cum,
+        mode='lines', name='Buy & Hold',
+        line=dict(color='gray', dash='dot')
+    ))
+    
+    fig_equity.update_layout(template='plotly_dark', height=600)
+    st.plotly_chart(fig_equity, use_container_width=True)
