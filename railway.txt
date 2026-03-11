@@ -1,0 +1,8 @@
+{
+  "build": {
+    "builder": "NIXPACKS"
+  },
+  "deploy": {
+    "startCommand": "streamlit run walk_forward_app.py --server.address 0.0.0.0 --server.port $PORT"
+  }
+}
