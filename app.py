@@ -1,8 +1,3 @@
-This error confirms that **explanatory text** (specifically the line `1. **Smart Quotes Syntax Error:**...`) was accidentally pasted into your Python file. Python cannot read Markdown explanations.
-
-Please **delete everything** currently in your `app.py` file and replace it entirely with the clean code below. This version uses only standard Python quotes and fixes the variable scope issues.
-
-```python
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -433,4 +428,3 @@ if len(oos_all) > 0:
         )
     except Exception as e:
         st.error(f"Could not generate Excel file. Ensure 'openpyxl' is installed.")
-```
