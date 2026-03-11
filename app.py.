@@ -362,3 +362,4 @@ if st.button("Run Walk-Forward Analysis"):
     
     fig_equity.update_layout(template='plotly_dark', height=600)
     st.plotly_chart(fig_equity, use_container_width=True)
+
