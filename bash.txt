@@ -1,2 +1,0 @@
-pip install -r requirements.txt
-streamlit run walk_forward_app.py
