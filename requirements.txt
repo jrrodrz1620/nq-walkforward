@@ -4,3 +4,7 @@ numpy>=1.24.0
 plotly>=5.18.0
 openpyxl>=3.1.0
 xlrd>=2.0.1
+
+# Dev / testing
+pytest>=8.0.0
+pytest-cov>=5.0.0
