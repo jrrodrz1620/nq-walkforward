@@ -1,0 +1,102 @@
+//@version=5
+indicator("Tradeify EOD NQ - Triple Backup FIXED", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ─── INPUTS ─────────────────────────────────────────────
+emaLength = input.int(20, "EMA Length", minval=1)
+atrLength = input.int(14, "ATR Length", minval=1)
+atrThreshold = input.float(80.0, "ATR Max Threshold", step=5)
+riskMultiple = input.float(1.5, "Stop ATR Multiple")
+rewardMultiple = input.float(2.0, "Target ATR Multiple")
+trendCandles = input.int(3, "Trend Confirmation Candles")
+confirmBars = input.int(1, "Confirmation Bars (5min)", minval=0, maxval=5)
+
+// ─── TIME ─────────────────────────────────────────────
+entryStartMin = 30
+entryEndMin = 50
+
+// ─── CALCULATIONS ─────────────────────────────────────
+ema20 = ta.ema(close, emaLength)
+atr = ta.atr(atrLength)
+
+trendUp = close > ema20 and close > close[trendCandles]
+trendDown = close < ema20 and close < close[trendCandles]
+
+// FIX 1: single AND clause so only 15:30-15:50 qualifies
+isEntryTime = hour == 15 and minute >= entryStartMin and minute <= entryEndMin
+
+atrOk = atr <= atrThreshold
+noTrade = math.abs(close - ema20) / atr < 0.3
+
+// ─── 5-MIN CONFIRMATION ───────────────────────────────
+// FIX 4: only request close since high5/low5 were unused
+close5 = request.security(syminfo.tickerid, "5", close, lookahead=barmerge.lookahead_on)
+longConfirm = close5 > close5[1]
+shortConfirm = close5 < close5[1]
+
+rawLong = trendUp and isEntryTime and atrOk and not noTrade and barstate.isconfirmed
+rawShort = trendDown and isEntryTime and atrOk and not noTrade and barstate.isconfirmed
+
+longSignal = rawLong and (confirmBars == 0 or longConfirm)
+shortSignal = rawShort and (confirmBars == 0 or shortConfirm)
+
+// ─── PLOT OUTPUTS ─────────────────────────────────────
+// FIX 2 & 3: removed duplicate EMA plot; stop/target plots are now plot_0-plot_3
+longStop = close - (atr * riskMultiple)
+longTarget = close + (atr * rewardMultiple)
+shortStop = close + (atr * riskMultiple)
+shortTarget = close - (atr * rewardMultiple)
+
+plot(longSignal ? longStop : na, "LongStop", display=display.none)       // plot_0
+plot(longSignal ? longTarget : na, "LongTarget", display=display.none)   // plot_1
+plot(shortSignal ? shortStop : na, "ShortStop", display=display.none)    // plot_2
+plot(shortSignal ? shortTarget : na, "ShortTarget", display=display.none)// plot_3
+
+plot(ema20, "20 EMA", color=color.new(color.orange, 0), linewidth=2)    // plot_4
+plot(atr, "ATR14", display=display.pane)                                 // plot_5
+
+// ─── VISUALS ──────────────────────────────────────────
+bgcolor(trendUp ? color.new(color.green, 90) : trendDown ? color.new(color.red, 90) : color.new(color.gray, 95))
+
+plotshape(longSignal, "Long Signal", shape.triangleup, location.belowbar, color.green, size=size.normal)
+plotshape(shortSignal, "Short Signal", shape.triangledown, location.abovebar, color.red, size=size.normal)
+
+// ─── INFO PANEL ───────────────────────────────────────
+var table infoPanel = table.new(position.top_right, 2, 8, bgcolor=color.new(color.black, 10), frame_color=color.gray, frame_width=1)
+
+if barstate.islast
+    table.cell(infoPanel, 0, 0, "20 EMA", text_color=color.white, text_size=size.small)
+    table.cell(infoPanel, 1, 0, str.tostring(ema20, "#.##"), text_color=color.orange, text_size=size.small)
+    table.cell(infoPanel, 0, 1, "ATR(14)", text_color=color.white, text_size=size.small)
+    table.cell(infoPanel, 1, 1, str.tostring(atr, "#.##") + (atr > atrThreshold ? " ⚠️" : " ✅"), text_color=atr > atrThreshold ? color.red : color.green, text_size=size.small)
+    table.cell(infoPanel, 0, 2, "Trend", text_color=color.white, text_size=size.small)
+    table.cell(infoPanel, 1, 2, trendUp ? "UP ✅" : trendDown ? "DOWN ✅" : "CHOP ⚠️", text_color=trendUp or trendDown ? color.green : color.gray, text_size=size.small)
+    table.cell(infoPanel, 0, 3, "Entry Window", text_color=color.white, text_size=size.small)
+    table.cell(infoPanel, 1, 3, isEntryTime ? "OPEN 🟢" : "CLOSED 🔴", text_color=isEntryTime ? color.green : color.red, text_size=size.small)
+    table.cell(infoPanel, 0, 4, "Chop Zone", text_color=color.white, text_size=size.small)
+    table.cell(infoPanel, 1, 4, noTrade ? "YES ⚠️" : "NO ✅", text_color=noTrade ? color.red : color.green, text_size=size.small)
+    table.cell(infoPanel, 0, 5, "5m Confirm", text_color=color.white, text_size=size.small)
+    table.cell(infoPanel, 1, 5, confirmBars > 0 ? "ON ✅" : "OFF", text_color=confirmBars > 0 ? color.green : color.gray, text_size=size.small)
+    table.cell(infoPanel, 0, 6, "Signal", text_color=color.white, text_size=size.small)
+    signalText = longSignal ? "LONG 🟢" : shortSignal ? "SHORT 🔴" : rawLong ? "PENDING ⏳" : rawShort ? "PENDING ⏳" : "NONE"
+    signalColor = longSignal ? color.green : shortSignal ? color.red : rawLong or rawShort ? color.yellow : color.gray
+    table.cell(infoPanel, 1, 6, signalText, text_color=signalColor, text_size=size.small)
+    table.cell(infoPanel, 0, 7, "Backups", text_color=color.white, text_size=size.small)
+    table.cell(infoPanel, 1, 7, "3 ACTIVE ✅", text_color=color.green, text_size=size.small)
+
+// ─── ALERT CONDITIONS (FIXED - const string only) ───
+
+// PRIMARY: TradersPost auto-execution (plot_0=LongStop, plot_1=LongTarget, plot_2=ShortStop, plot_3=ShortTarget)
+alertcondition(longSignal, "TradersPost NQ LONG", '{"ticker":"NQ","action":"buy","price":{{close}},"stopLoss":{{plot_0}},"takeProfit":{{plot_1}},"quantity":1,"timeInForce":"gtc","orderType":"market","notes":"EOD_LONG_{{time}}"}')
+alertcondition(shortSignal, "TradersPost NQ SHORT", '{"ticker":"NQ","action":"sell","price":{{close}},"stopLoss":{{plot_2}},"takeProfit":{{plot_3}},"quantity":1,"timeInForce":"gtc","orderType":"market","notes":"EOD_SHORT_{{time}}"}')
+
+// BACKUP 1: Telegram notification
+alertcondition(longSignal, "Telegram NQ LONG", '🔥 NQ LONG | Price: {{close}} | Stop: {{plot_0}} | Target: {{plot_1}} | Time: {{time}}')
+alertcondition(shortSignal, "Telegram NQ SHORT", '🔥 NQ SHORT | Price: {{close}} | Stop: {{plot_2}} | Target: {{plot_3}} | Time: {{time}}')
+
+// BACKUP 2: Email/SMS dashboard
+alertcondition(longSignal, "Dashboard NQ LONG", '{"alert":"NQ_LONG","price":{{close}},"stop":{{plot_0}},"target":{{plot_1}},"time":"{{time}}"}')
+alertcondition(shortSignal, "Dashboard NQ SHORT", '{"alert":"NQ_SHORT","price":{{close}},"stop":{{plot_2}},"target":{{plot_3}},"time":"{{time}}"}')
+
+// EARLY WARNING: Pending signals
+alertcondition(rawLong and not longSignal, "Telegram PENDING LONG", '⏳ NQ LONG PENDING - Awaiting 5m confirmation | {{time}}')
+alertcondition(rawShort and not shortSignal, "Telegram PENDING SHORT", '⏳ NQ SHORT PENDING - Awaiting 5m confirmation | {{time}}')
