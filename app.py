@@ -34,29 +34,39 @@ st.markdown("""
 # SIDEBAR
 # ─────────────────────────────────────────────
 
-st.sidebar.title("⚙️ Walk-Forward Settings")
+st.sidebar.title("⚙️ Settings")
 
-uploaded_file = st.sidebar.file_uploader(
-    "Upload TradingView Backtest XLSX",
-    type=["xlsx", "xls", "csv"],
-    help="Export from TradingView → Strategy Tester → Export → List of Trades"
+app_mode = st.sidebar.radio(
+    "Tool",
+    ["Walk-Forward Analyzer", "GEX Levels (Estructura+ GEX)"],
+    help="Walk-Forward: analiza un export de TradingView. GEX Levels: calcula "
+         "Call/Put Wall y Gamma Flip desde una cadena de opciones para la "
+         "estrategia Estructura+ GEX."
 )
-
 st.sidebar.markdown("---")
-st.sidebar.subheader("Window Settings")
-n_folds       = st.sidebar.slider("Number of Folds",        2, 10, 5)
-train_pct     = st.sidebar.slider("Train %",                50, 85, 70)
-min_trades    = st.sidebar.slider("Min Trades per Fold",    3, 20, 5)
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("Risk Settings")
-starting_capital = st.sidebar.number_input("Starting Capital ($)", value=50000, step=1000)
-contract_value   = st.sidebar.number_input("Points → $ Multiplier", value=20.0, step=1.0,
-    help="NQ=20, MNQ=2, ES=50, MES=5")
+if app_mode == "Walk-Forward Analyzer":
+    uploaded_file = st.sidebar.file_uploader(
+        "Upload TradingView Backtest XLSX",
+        type=["xlsx", "xls", "csv"],
+        help="Export from TradingView → Strategy Tester → Export → List of Trades"
+    )
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("Column Mapping")
-st.sidebar.caption("Auto-detected from TradingView export. Override if needed.")
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Window Settings")
+    n_folds       = st.sidebar.slider("Number of Folds",        2, 10, 5)
+    train_pct     = st.sidebar.slider("Train %",                50, 85, 70)
+    min_trades    = st.sidebar.slider("Min Trades per Fold",    3, 20, 5)
+
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Risk Settings")
+    starting_capital = st.sidebar.number_input("Starting Capital ($)", value=50000, step=1000)
+    contract_value   = st.sidebar.number_input("Points → $ Multiplier", value=20.0, step=1.0,
+        help="NQ=20, MNQ=2, ES=50, MES=5")
+
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Column Mapping")
+    st.sidebar.caption("Auto-detected from TradingView export. Override if needed.")
 
 # ─────────────────────────────────────────────
 # HELPERS
@@ -259,8 +269,177 @@ def fold_table(folds, capital):
     return pd.DataFrame(rows)
 
 # ─────────────────────────────────────────────
+# GEX (Gamma Exposure) — Estructura+ GEX
+# ─────────────────────────────────────────────
+
+# Posibles nombres de columna en una cadena de opciones tipica (CBOE, etc.).
+GEX_COL_CANDIDATES = {
+    "strike": ["strike", "strike price", "strikeprice", "k"],
+    "type":   ["type", "option type", "right", "call/put", "cp"],
+    "gamma":  ["gamma", "gamma_per_contract", "gamma per contract"],
+    "oi":     ["oi", "open interest", "open_interest", "openinterest"],
+}
+
+def _guess_col(columns, candidates):
+    """Devuelve la primera columna cuyo nombre (normalizado) coincide."""
+    norm = {str(c).strip().lower(): c for c in columns}
+    for cand in candidates:
+        if cand in norm:
+            return norm[cand]
+    return None
+
+def compute_gex(df: pd.DataFrame, col_map: dict, spot: float, multiplier: float) -> dict:
+    """Calcula GEX por strike y deriva Call Wall, Put Wall y Gamma Flip.
+
+    GEX por opcion (convencion de dealer):
+        calls -> +gamma * OI * multiplier * spot^2 * 0.01
+        puts  -> -gamma * OI * multiplier * spot^2 * 0.01
+    El factor spot^2 * 0.01 expresa el dolar-gamma por movimiento del 1%.
+    """
+    g = df.copy()
+    g["strike"] = pd.to_numeric(g[col_map["strike"]], errors="coerce")
+    g["gamma"]  = pd.to_numeric(g[col_map["gamma"]],  errors="coerce")
+    g["oi"]     = pd.to_numeric(g[col_map["oi"]],     errors="coerce")
+    raw_type    = g[col_map["type"]].astype(str).str.strip().str.lower()
+    g["is_call"] = raw_type.str.startswith("c")
+
+    g = g.dropna(subset=["strike", "gamma", "oi"])
+    if g.empty:
+        return {}
+
+    sign = np.where(g["is_call"], 1.0, -1.0)
+    g["gex"] = sign * g["gamma"] * g["oi"] * multiplier * (spot ** 2) * 0.01
+
+    by_strike = g.groupby("strike", as_index=False)["gex"].sum().sort_values("strike")
+    by_strike["cum_gex"] = by_strike["gex"].cumsum()
+
+    # Call Wall = mayor GEX positivo ; Put Wall = GEX mas negativo.
+    call_wall = float(by_strike.loc[by_strike["gex"].idxmax(), "strike"])
+    put_wall  = float(by_strike.loc[by_strike["gex"].idxmin(), "strike"])
+
+    # Gamma Flip = strike donde el GEX acumulado cruza cero (interpolado).
+    gamma_flip = None
+    cum = by_strike["cum_gex"].values
+    ks  = by_strike["strike"].values
+    for i in range(1, len(cum)):
+        if (cum[i - 1] <= 0 < cum[i]) or (cum[i - 1] >= 0 > cum[i]):
+            x0, x1 = ks[i - 1], ks[i]
+            y0, y1 = cum[i - 1], cum[i]
+            gamma_flip = float(x0 - y0 * (x1 - x0) / (y1 - y0)) if y1 != y0 else float(x1)
+            break
+    if gamma_flip is None:
+        # Sin cruce: usa el strike de menor |GEX acumulado| como aproximacion.
+        gamma_flip = float(by_strike.loc[by_strike["cum_gex"].abs().idxmin(), "strike"])
+
+    return {
+        "by_strike":  by_strike,
+        "call_wall":  call_wall,
+        "put_wall":   put_wall,
+        "gamma_flip": gamma_flip,
+        "total_gex":  float(by_strike["gex"].sum()),
+    }
+
+def render_gex_tool():
+    """Pestaña: calcula niveles GEX desde una cadena de opciones."""
+    st.title("GEX Levels — Estructura+ GEX")
+    st.caption("Sube una cadena de opciones (NQ/ES/SPX) y obten Call Wall, "
+               "Put Wall y Gamma Flip listos para pegar en la estrategia Pine.")
+
+    c1, c2 = st.columns(2)
+    spot = c1.number_input("Spot / precio subyacente", value=20000.0, step=10.0,
+        help="Precio actual del subyacente (NQ, ES, SPX...).")
+    multiplier = c2.number_input("Multiplicador del contrato", value=100.0, step=1.0,
+        help="Opciones de indice/equity = 100. Ajusta segun tu fuente.")
+
+    chain_file = st.file_uploader(
+        "Cadena de opciones (CSV / XLSX)", type=["csv", "xlsx", "xls"],
+        help="Columnas esperadas: strike, type (call/put), gamma, open interest."
+    )
+
+    if chain_file is None:
+        st.info("Sube una cadena de opciones con columnas: strike, type, gamma, "
+                "open interest. Tip: muchos proveedores (CBOE) permiten exportar CSV.")
+        return
+
+    try:
+        chain = pd.read_csv(chain_file) if chain_file.name.endswith(".csv") \
+            else pd.read_excel(chain_file)
+    except Exception as e:
+        st.error(f"No se pudo leer el archivo: {e}")
+        return
+
+    # Mapeo de columnas (auto + override manual).
+    st.subheader("Mapeo de columnas")
+    cols = list(chain.columns)
+    mcols = st.columns(4)
+    col_map = {}
+    for i, (key, cands) in enumerate(GEX_COL_CANDIDATES.items()):
+        guess = _guess_col(cols, cands)
+        idx = cols.index(guess) if guess in cols else 0
+        col_map[key] = mcols[i].selectbox(key, cols, index=idx)
+
+    res = compute_gex(chain, col_map, spot, multiplier)
+    if not res:
+        st.error("No hay datos validos tras limpiar (revisa el mapeo de columnas).")
+        return
+
+    st.markdown("---")
+    st.subheader("Niveles GEX")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Call Wall (resistencia)", f"{res['call_wall']:,.2f}")
+    m2.metric("Put Wall (soporte)",      f"{res['put_wall']:,.2f}")
+    m3.metric("Gamma Flip / Zero Gamma", f"{res['gamma_flip']:,.2f}")
+
+    regime = "Positivo (rango/reversion)" if spot > res["gamma_flip"] else "Negativo (tendencia)"
+    st.info(f"Spot {spot:,.2f} {'>' if spot > res['gamma_flip'] else '<'} "
+            f"Gamma Flip {res['gamma_flip']:,.2f} → Regimen GEX **{regime}**")
+
+    # Grafico GEX por strike.
+    bs = res["by_strike"]
+    fig = go.Figure(go.Bar(
+        x=bs["strike"], y=bs["gex"],
+        marker_color=["#2ecc71" if v >= 0 else "#e74c3c" for v in bs["gex"]],
+    ))
+    for lvl, name, color in [
+        (res["call_wall"], "Call Wall", "#e74c3c"),
+        (res["put_wall"], "Put Wall", "#2ecc71"),
+        (res["gamma_flip"], "Gamma Flip", "#f1c40f"),
+    ]:
+        fig.add_vline(x=lvl, line_dash="dash", line_color=color, annotation_text=name)
+    fig.update_layout(template="plotly_dark", height=380,
+                      xaxis_title="Strike", yaxis_title="GEX ($ gamma)",
+                      title="GEX por strike")
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Snippet para pegar en la estrategia Pine.
+    st.markdown("---")
+    st.subheader("Pega en Estructura+ GEX (inputs)")
+    snippet = (
+        f"Call Wall      = {res['call_wall']:.2f}\n"
+        f"Put Wall       = {res['put_wall']:.2f}\n"
+        f"Gamma Flip     = {res['gamma_flip']:.2f}"
+    )
+    st.code(snippet, language="text")
+    st.download_button(
+        "Descargar niveles (CSV)",
+        data=pd.DataFrame([{
+            "call_wall": res["call_wall"],
+            "put_wall": res["put_wall"],
+            "gamma_flip": res["gamma_flip"],
+            "spot": spot,
+            "regime": regime,
+        }]).to_csv(index=False),
+        file_name="gex_levels.csv",
+        mime="text/csv",
+    )
+
+# ─────────────────────────────────────────────
 # MAIN APP
 # ─────────────────────────────────────────────
+
+if app_mode == "GEX Levels (Estructura+ GEX)":
+    render_gex_tool()
+    st.stop()
 
 st.title("Walk-Forward Analyzer — TradingView XLSX")
 st.caption("Upload your TradingView backtest export -> get out-of-sample performance analysis")
