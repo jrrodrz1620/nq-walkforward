@@ -2,5 +2,9 @@ sample_trades.xlsx
 walkforward_results.xlsx
 bt_export.xlsx
 *.xlsx
+sweep_results.csv
+sweep_overfit.png
+*.png
 __pycache__/
 *.pyc
+.pytest_cache/

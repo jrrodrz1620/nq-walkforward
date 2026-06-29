@@ -11,6 +11,8 @@ around the **Phantom Flow SMC** strategy but works with any TradingView
 | `app.py` | `streamlit run app.py` | Upload a TradingView export → folds, OOS equity, overfit check, **new metrics** (expectancy, R-multiple, payoff, Sharpe, streaks) and a **Monte Carlo** section. |
 | `demo.py` | `python demo.py` | Runs the full analysis pipeline on a synthetic export — no TradingView/browser needed. |
 | `run_backtest.py` | `python run_backtest.py` | Runs the **Phantom Flow SMC strategy logic in Python** over OHLC data, then walk-forward analyzes the real trades. |
+| `sweep.py` | `python sweep.py` | Grid-searches key parameters and plots an **overfit map** (in-sample vs out-of-sample PF) so you keep robust settings, not in-sample winners. |
+| `test_backtest.py` | `python test_backtest.py` *or* `pytest` | Unit tests for the fill logic (target/stop/partial/breakeven) + run_backtest invariants. |
 
 ### Backtest harness
 
@@ -29,6 +31,14 @@ both stop and target).
 > On synthetic random-walk data the strategy is a slight net loser after
 > commissions — which is correct: noise has no edge to capture. Point it at real
 > NQ/MNQ bars with `--csv` to get meaningful numbers.
+
+### Reading the overfit map (`sweep.py`)
+
+Each point is a parameter combo: in-sample PF on the x-axis, out-of-sample PF on
+the y-axis, colored by trade count. The dashed diagonal is "no degradation".
+Combos that sit high on x but low on y (bottom-right) looked great in-sample and
+fell apart out-of-sample — overfit, and usually on few trades. Prefer combos
+that sit on/above the diagonal **with a healthy trade count**.
 
 ## Modules
 
