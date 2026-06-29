@@ -1,4 +1,6 @@
 sample_trades.xlsx
 walkforward_results.xlsx
+bt_export.xlsx
+*.xlsx
 __pycache__/
 *.pyc
