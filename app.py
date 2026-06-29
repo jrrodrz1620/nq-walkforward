@@ -5,6 +5,9 @@ import plotly.graph_objects as go
 import plotly.express as px
 import io
 
+from dataio import load_and_clean
+from metrics import split_folds, calc_metrics, monte_carlo
+
 # Ensure openpyxl is installed for Excel writing: pip install openpyxl
 try:
     import openpyxl
@@ -59,140 +62,8 @@ st.sidebar.subheader("Column Mapping")
 st.sidebar.caption("Auto-detected from TradingView export. Override if needed.")
 
 # ─────────────────────────────────────────────
-# HELPERS
+# HELPERS  (loaders & metrics now live in dataio.py / metrics.py)
 # ─────────────────────────────────────────────
-
-TRADINGVIEW_COL_MAP = {
-    "Trade #":          "trade_num",
-    "Type":             "type",
-    "Signal":           "signal",
-    "Date/Time":        "entry_time",
-    "Price":            "entry_price",
-    "Contracts":        "contracts",
-    "Profit":           "profit_usd",
-    "Profit %":         "profit_pct",
-    "Cum. Profit":      "cum_profit",
-    "Run-up":           "runup",
-    "Run-up %":         "runup_pct",
-    "Drawdown":         "drawdown",
-    "Drawdown %":       "drawdown_pct",
-    "Entry Date/Time":  "entry_time",
-    "Exit Date/Time":   "exit_time",
-    "Entry Price":      "entry_price",
-    "Exit Price":       "exit_price",
-    "Net Profit":       "profit_usd",
-    "Net Profit %":     "profit_pct",
-}
-
-def load_and_clean(file, contract_multiplier) -> pd.DataFrame:
-    """Load XLSX/CSV and normalize to internal schema."""
-    if file.name.endswith(".csv"):
-        raw = pd.read_csv(file)
-    else:
-        xls = pd.ExcelFile(file)
-        sheet = xls.sheet_names[0]
-        # Try to find header row
-        preview = pd.read_excel(file, sheet_name=sheet, header=None, nrows=10)
-        header_row = 0
-        for i, row in preview.iterrows():
-            if any(str(v).strip() in ("Trade #", "Type", "Signal") for v in row.values):
-                header_row = i
-                break
-        raw = pd.read_excel(file, sheet_name=sheet, header=header_row)
-
-    rename = {k: v for k, v in TRADINGVIEW_COL_MAP.items() if k in raw.columns}
-    df = raw.rename(columns=rename)
-
-    if "trade_num" in df.columns:
-        df = df[pd.to_numeric(df["trade_num"], errors="coerce").notna()]
-
-    for col in ["entry_time", "exit_time"]:
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors="coerce")
-
-    for col in ["profit_usd", "cum_profit", "runup", "drawdown"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(
-                df[col].astype(str).str.replace(r"[$,%]", "", regex=True).str.strip(),
-                errors="coerce"
-            )
-
-    if "entry_time" not in df.columns:
-        time_cols = [c for c in df.columns if "date" in c.lower() or "time" in c.lower()]
-        if time_cols:
-            df["entry_time"] = pd.to_datetime(df[time_cols[0]], errors="coerce")
-
-    if "entry_time" not in df.columns or "profit_usd" not in df.columns:
-        return pd.DataFrame() # Return empty if critical columns missing
-
-    df = df.dropna(subset=["entry_time", "profit_usd"])
-    df = df.sort_values("entry_time").reset_index(drop=True)
-
-    if contract_multiplier > 0:
-        df["profit_pts"] = df["profit_usd"] / contract_multiplier
-
-    return df
-
-def split_folds(df: pd.DataFrame, n: int, train_pct: float):
-    """Split trades into walk-forward folds."""
-    total = len(df)
-    fold_size = total // n
-    folds = []
-    for i in range(n):
-        start = i * fold_size
-        end   = start + fold_size if i < n - 1 else total
-        chunk = df.iloc[start:end].copy()
-        split = int(len(chunk) * train_pct / 100)
-        train = chunk.iloc[:split]
-        test  = chunk.iloc[split:]
-        
-        if len(train) >= min_trades and len(test) >= 1:
-            folds.append({
-                "fold":       i + 1,
-                "train":      train,
-                "test":       test,
-                "train_start": train["entry_time"].iloc[0],
-                "train_end":   train["entry_time"].iloc[-1],
-                "test_start":  test["entry_time"].iloc[0],
-                "test_end":    test["entry_time"].iloc[-1],
-            })
-    return folds
-
-def calc_metrics(trades: pd.DataFrame, capital: float) -> dict:
-    """Calculate performance metrics for a set of trades."""
-    if len(trades) == 0:
-        return {
-            "n_trades": 0, "net_profit": 0, "win_rate": 0, 
-            "avg_win": 0, "avg_loss": 0, "profit_factor": 0, 
-            "max_dd": 0, "return_pct": 0
-        }
-    
-    pnl = trades["profit_usd"].values
-    wins  = pnl[pnl > 0]
-    losses = pnl[pnl < 0]
-
-    net_profit = pnl.sum()
-    win_rate   = len(wins) / len(pnl) * 100 if len(pnl) > 0 else 0
-    avg_win    = wins.mean()  if len(wins)   > 0 else 0
-    avg_loss   = losses.mean() if len(losses) > 0 else 0
-    profit_factor = abs(wins.sum() / losses.sum()) if losses.sum() != 0 else np.inf
-
-    equity = capital + np.cumsum(pnl)
-    peak   = np.maximum.accumulate(equity)
-    dd     = (equity - peak) / peak * 100
-    max_dd = dd.min()
-
-    return {
-        "n_trades":      len(pnl),
-        "net_profit":    net_profit,
-        "win_rate":      win_rate,
-        "avg_win":       avg_win,
-        "avg_loss":      avg_loss,
-        "profit_factor": profit_factor,
-        "max_dd":        max_dd,
-        "equity":        equity,
-        "return_pct":    net_profit / capital * 100,
-    }
 
 def equity_curve_fig(folds, capital):
     """Build OOS equity curve across all folds."""
@@ -295,7 +166,7 @@ with st.expander("Raw Trade Data", expanded=False):
 
 # ── Split folds ──
 
-folds = split_folds(df, n_folds, train_pct)
+folds = split_folds(df, n_folds, train_pct, min_trades)
 if len(folds) == 0:
     st.error("Not enough trades to create folds. Reduce Min Trades per Fold or increase data.")
     st.stop()
@@ -312,6 +183,18 @@ c2.metric("Net Profit",      f"${overall['net_profit']:,.0f}")
 c3.metric("Win Rate",        f"{overall['win_rate']:.1f}%")
 c4.metric("Profit Factor",   f"{overall['profit_factor']:.2f}")
 c5.metric("Max Drawdown",    f"{overall['max_dd']:.1f}%")
+
+d1, d2, d3, d4, d5 = st.columns(5)
+d1.metric("Expectancy / Trade", f"${overall['expectancy']:,.0f}",
+          help="Average $ result per trade (positive = edge).")
+d2.metric("Avg R-Multiple",     f"{overall['avg_r']:.2f}R",
+          help="Average outcome in units of the average loss (1R). Approximate — TradingView exports don't carry stop distance.")
+d3.metric("Payoff Ratio",       f"{overall['payoff']:.2f}",
+          help="Average win size ÷ average loss size.")
+d4.metric("Sharpe (per-trade)", f"{overall['sharpe']:.2f}",
+          help="Mean trade PnL ÷ std of trade PnL. Trade-based, not annualized.")
+d5.metric("Max Loss Streak",    overall["max_loss_streak"],
+          help="Longest run of consecutive losing trades — sizing/psychology check.")
 
 # ── Gantt chart ──
 
@@ -407,6 +290,39 @@ if len(oos_all) > 0:
         title="Monthly OOS P&L"
     )
     st.plotly_chart(fig_monthly, use_container_width=True)
+
+    # ── Monte Carlo ──
+
+    st.markdown("---")
+    st.subheader("Monte Carlo Simulation")
+    st.caption("Bootstrap-resamples your trades (with replacement) to map the range of "
+               "outcomes a single backtest can't show. Uses all trades, not just OOS.")
+
+    n_sims = st.slider("Simulations", 200, 5000, 2000, step=200)
+    mc = monte_carlo(df["profit_usd"].to_numpy(), starting_capital, n_sims=n_sims)
+
+    if mc:
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Final Equity p5",  f"${mc['final_p5']:,.0f}",
+                  help="5th percentile — a pessimistic but plausible outcome.")
+        m2.metric("Final Equity p50", f"${mc['final_p50']:,.0f}", help="Median outcome.")
+        m3.metric("Max DD p95",       f"{mc['maxdd_p95']:.1f}%",
+                  help="95th-percentile worst drawdown — size your risk for this.")
+        m4.metric("P(loss)",          f"{mc['prob_loss']:.1f}%",
+                  help="Share of simulations ending below starting capital.")
+
+        cmc1, cmc2 = st.columns(2)
+        with cmc1:
+            fig_fin = go.Figure(go.Histogram(x=mc["finals"], nbinsx=40, marker_color="#1f77b4"))
+            fig_fin.add_vline(x=starting_capital, line_dash="dash", line_color="white")
+            fig_fin.update_layout(template="plotly_dark", height=280, margin=dict(t=30),
+                                  title="Final Equity Distribution", xaxis_title="Account Value ($)")
+            st.plotly_chart(fig_fin, use_container_width=True)
+        with cmc2:
+            fig_dd = go.Figure(go.Histogram(x=mc["max_dds"], nbinsx=40, marker_color="#ff7f0e"))
+            fig_dd.update_layout(template="plotly_dark", height=280, margin=dict(t=30),
+                                 title="Max Drawdown Distribution", xaxis_title="Max Drawdown (%)")
+            st.plotly_chart(fig_dd, use_container_width=True)
 
     # ── Export results ──
 
