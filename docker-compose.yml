@@ -1,11 +1,14 @@
-# Run the bot on a Droplet (or locally):  docker compose up -d --build
-# Copy .env.example -> .env and fill in your secrets first.
+# Run the bot behind Caddy (automatic HTTPS) on a Droplet:
+#   cp .env.example .env   # fill in BOT_PASSPHRASE, BOT_DOMAIN, ACME_EMAIL
+#   docker compose up -d --build
+# TradingView then POSTs to https://<BOT_DOMAIN>/webhook
 services:
   bot:
     build: .
     image: tradingview-futures-bot
-    ports:
-      - "8000:8000"
+    # Not published to the host — only reachable by Caddy on the internal network.
+    expose:
+      - "8000"
     environment:
       BOT_PASSPHRASE: ${BOT_PASSPHRASE:?set BOT_PASSPHRASE in .env}
       BOT_BROKER_URL: ${BOT_BROKER_URL:-https://demo.tradovate.example/v1}
@@ -17,5 +20,24 @@ services:
       - bot_state:/data
     restart: unless-stopped
 
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      - bot
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      BOT_DOMAIN: ${BOT_DOMAIN:?set BOT_DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Persist issued certificates so they survive restarts (avoids LE rate limits).
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
 volumes:
   bot_state:
+  caddy_data:
+  caddy_config:

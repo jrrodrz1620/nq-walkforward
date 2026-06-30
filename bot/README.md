@@ -96,14 +96,20 @@ The repo ships a portable `Dockerfile`, a `docker-compose.yml`, and a DO App
 Platform spec at `.do/app.yaml`. State + error log default to `/data` — mount a
 volume there so they survive restarts.
 
-**Droplet (recommended — durable SQLite state):**
+**Droplet (recommended — durable SQLite state + automatic HTTPS):**
 ```bash
-cp .env.example .env      # fill in BOT_PASSPHRASE etc.
+cp .env.example .env      # fill in BOT_PASSPHRASE, BOT_DOMAIN, ACME_EMAIL
 docker compose up -d --build
-curl http://<droplet-ip>:8000/health
+curl https://<BOT_DOMAIN>/health
 ```
+`docker-compose.yml` runs the bot behind **Caddy**, which auto-provisions and
+renews a Let's Encrypt certificate — TradingView then POSTs to
+`https://<BOT_DOMAIN>/webhook`. The bot's port 8000 is **not** published to the
+host; only Caddy (80/443) is exposed. Requirements: `BOT_DOMAIN`'s DNS A record
+points at the Droplet and ports 80/443 are open on the firewall.
+
 The named `bot_state` volume keeps positions + idempotency history across
-restarts and redeploys.
+restarts; `caddy_data` persists the issued certificate (avoids LE rate limits).
 
 **App Platform:**
 ```bash

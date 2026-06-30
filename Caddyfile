@@ -1,0 +1,26 @@
+# Caddy reverse proxy with automatic HTTPS (Let's Encrypt).
+# BOT_DOMAIN / ACME_EMAIL come from the environment (see .env / docker-compose).
+#
+# Requirements for real certs:
+#   * BOT_DOMAIN's DNS A record points at the Droplet's public IP
+#   * ports 80 and 443 are open on the Droplet firewall
+# Caddy then provisions + auto-renews the cert with no extra steps.
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$BOT_DOMAIN} {
+	encode gzip
+
+	# Forward everything to the bot container on the internal network.
+	reverse_proxy bot:8000 {
+		health_uri /health
+		health_interval 30s
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
