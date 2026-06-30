@@ -25,9 +25,6 @@ import itertools
 
 import numpy as np
 import pandas as pd
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 
 from backtest import Params, generate_ohlc, load_ohlc_csv, run_backtest
 from metrics import calc_metrics
@@ -113,6 +110,10 @@ def walk_forward(ohlc: pd.DataFrame, n_folds: int = 4,
 
 def plot_equity(oos_all: pd.DataFrame, folds: pd.DataFrame,
                 path: str = "wfo_equity.png") -> str:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
     fig, ax = plt.subplots(figsize=(9, 5))
     if not oos_all.empty:
         eq = CAPITAL + oos_all["profit_usd"].cumsum()

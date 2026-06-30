@@ -21,9 +21,6 @@ import itertools
 
 import numpy as np
 import pandas as pd
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 
 from backtest import Params, generate_ohlc, load_ohlc_csv, run_backtest
 from metrics import split_folds, calc_metrics
@@ -69,6 +66,10 @@ def run_sweep(ohlc: pd.DataFrame) -> pd.DataFrame:
 
 
 def plot_overfit(df: pd.DataFrame, path: str = "sweep_overfit.png") -> str:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
     d = df.dropna(subset=["is_pf", "oos_pf"]).copy()
     fig, ax = plt.subplots(figsize=(7, 6))
     sc = ax.scatter(d["is_pf"], d["oos_pf"], c=d["n_trades"], cmap="viridis",
