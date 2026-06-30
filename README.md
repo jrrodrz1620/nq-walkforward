@@ -12,6 +12,7 @@ around the **Phantom Flow SMC** strategy but works with any TradingView
 | `demo.py` | `python demo.py` | Runs the full analysis pipeline on a synthetic export — no TradingView/browser needed. |
 | `run_backtest.py` | `python run_backtest.py` | Runs the **Phantom Flow SMC strategy logic in Python** over OHLC data, then walk-forward analyzes the real trades. |
 | `sweep.py` | `python sweep.py` | Grid-searches key parameters and plots an **overfit map** (in-sample vs out-of-sample PF) so you keep robust settings, not in-sample winners. |
+| `wfo.py` | `python wfo.py` | **Walk-forward optimization**: re-optimizes params on each train window, trades them on the next OOS window, stitches the OOS equity. The optimism gap (train PF → OOS PF) is the real robustness signal. |
 | `test_backtest.py` | `python test_backtest.py` *or* `pytest` | Unit tests for the fill logic (target/stop/partial/breakeven) + run_backtest invariants. |
 
 ### Backtest harness
@@ -39,6 +40,14 @@ the y-axis, colored by trade count. The dashed diagonal is "no degradation".
 Combos that sit high on x but low on y (bottom-right) looked great in-sample and
 fell apart out-of-sample — overfit, and usually on few trades. Prefer combos
 that sit on/above the diagonal **with a healthy trade count**.
+
+### WFO vs. the analyzer — what's the difference?
+
+- **`app.py` / `demo.py`** walk-forward *analyze* one fixed strategy: they split a
+  single trade list and check whether the same parameters hold up OOS.
+- **`wfo.py`** walk-forward *optimize*: it re-picks parameters on each train
+  window and trades them forward. This is the harder, more honest test — if the
+  best train params keep changing and OOS lags train badly, the edge is fragile.
 
 ## Modules
 
