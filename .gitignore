@@ -8,3 +8,10 @@ sweep_overfit.png
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Trading bot runtime artifacts (generated at run time)
+bot_state.db
+bot_state.db-wal
+bot_state.db-shm
+error_log.json
+.venv/
