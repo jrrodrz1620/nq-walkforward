@@ -30,6 +30,14 @@ TRADINGVIEW_COL_MAP = {
     "Exit Price":       "exit_price",
     "Net Profit":       "profit_usd",
     "Net Profit %":     "profit_pct",
+    # New TradingView export format (2024+)
+    "Trade number":     "trade_num",
+    "Date and time":    "entry_time",
+    "Price USD":        "entry_price",
+    "Size (qty)":       "contracts",
+    "Net PnL USD":      "profit_usd",
+    "Net PnL %":        "profit_pct",
+    "Cumulative PnL USD": "cum_profit",
 }
 
 
@@ -49,7 +57,7 @@ def load_and_clean(file, contract_multiplier: float) -> pd.DataFrame:
         preview = pd.read_excel(file, sheet_name=sheet, header=None, nrows=10)
         header_row = 0
         for i, row in preview.iterrows():
-            if any(str(v).strip() in ("Trade #", "Type", "Signal") for v in row.values):
+            if any(str(v).strip() in ("Trade #", "Trade number", "Type", "Signal") for v in row.values):
                 header_row = i
                 break
         raw = pd.read_excel(file, sheet_name=sheet, header=header_row)
@@ -59,6 +67,7 @@ def load_and_clean(file, contract_multiplier: float) -> pd.DataFrame:
 
     if "trade_num" in df.columns:
         df = df[pd.to_numeric(df["trade_num"], errors="coerce").notna()]
+        df["trade_num"] = pd.to_numeric(df["trade_num"], errors="coerce")
 
     for col in ["entry_time", "exit_time"]:
         if col in df.columns:
@@ -75,6 +84,19 @@ def load_and_clean(file, contract_multiplier: float) -> pd.DataFrame:
         time_cols = [c for c in df.columns if "date" in c.lower() or "time" in c.lower()]
         if time_cols:
             df["entry_time"] = pd.to_datetime(df[time_cols[0]], errors="coerce")
+
+    # Collapse paired Entry/Exit rows (both the old and new exports emit two rows
+    # per trade). Keep the Entry row for its entry time, and take the trade's net
+    # PnL from whichever row carries it (the exit row in the old format; both in
+    # the new one). Single-row-per-trade exports pass through unchanged.
+    if "type" in df.columns and "trade_num" in df.columns and df["trade_num"].duplicated().any():
+        is_entry = df["type"].astype(str).str.contains("entry", case=False, na=False)
+        if is_entry.any() and "profit_usd" in df.columns:
+            net = (df.dropna(subset=["profit_usd"])
+                     .groupby("trade_num")["profit_usd"].first())
+            ent = df[is_entry].copy()
+            ent["profit_usd"] = ent["trade_num"].map(net)
+            df = ent
 
     if "entry_time" not in df.columns or "profit_usd" not in df.columns:
         return pd.DataFrame()
