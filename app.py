@@ -182,7 +182,7 @@ def render_analyzer():
     st.success(f"Loaded {len(df)} trades from {uploaded_file.name}")
 
     with st.expander("Raw Trade Data", expanded=False):
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(df, width='stretch')
 
     folds = split_folds(df, n_folds, train_pct, min_trades)
     if len(folds) == 0:
@@ -214,17 +214,17 @@ def render_analyzer():
 
     st.markdown("---")
     st.subheader("Walk-Forward Windows")
-    st.plotly_chart(gantt_fig(folds), use_container_width=True)
+    st.plotly_chart(gantt_fig(folds), width='stretch')
 
     st.subheader("Out-of-Sample Equity Curve")
-    st.plotly_chart(equity_curve_fig(folds, starting_capital), use_container_width=True)
+    st.plotly_chart(equity_curve_fig(folds, starting_capital), width='stretch')
 
     st.subheader("Per-Fold Metrics")
     ft = fold_table(folds, starting_capital)
     st.dataframe(ft.style.background_gradient(
         subset=["OOS WR%", "OOS PF", "OOS Net $"],
         cmap="RdYlGn"
-    ), use_container_width=True)
+    ), width='stretch')
 
     st.markdown("---")
     st.subheader("OOS Summary")
@@ -257,7 +257,7 @@ def render_analyzer():
             marker_color=["#1f77b4", "#ff7f0e"]
         ))
         fig_pf.update_layout(template="plotly_dark", height=250, margin=dict(t=20))
-        st.plotly_chart(fig_pf, use_container_width=True)
+        st.plotly_chart(fig_pf, width='stretch')
     with col2:
         st.markdown("**Train vs OOS Win Rate**")
         fig_wr = go.Figure(go.Bar(
@@ -266,7 +266,7 @@ def render_analyzer():
             marker_color=["#1f77b4", "#ff7f0e"]
         ))
         fig_wr.update_layout(template="plotly_dark", height=250, margin=dict(t=20))
-        st.plotly_chart(fig_wr, use_container_width=True)
+        st.plotly_chart(fig_wr, width='stretch')
 
     if ratio_pf >= 0.8:
         st.success(f"OOS/Train PF ratio = {ratio_pf:.2f} — Strategy looks robust.")
@@ -287,7 +287,7 @@ def render_analyzer():
     ))
     fig_monthly.update_layout(template="plotly_dark", height=300,
                               xaxis_title="Month", yaxis_title="Net P&L ($)", title="Monthly OOS P&L")
-    st.plotly_chart(fig_monthly, use_container_width=True)
+    st.plotly_chart(fig_monthly, width='stretch')
 
     st.markdown("---")
     st.subheader("Monte Carlo Simulation")
@@ -310,12 +310,12 @@ def render_analyzer():
             fig_fin.add_vline(x=starting_capital, line_dash="dash", line_color="white")
             fig_fin.update_layout(template="plotly_dark", height=280, margin=dict(t=30),
                                   title="Final Equity Distribution", xaxis_title="Account Value ($)")
-            st.plotly_chart(fig_fin, use_container_width=True)
+            st.plotly_chart(fig_fin, width='stretch')
         with cmc2:
             fig_dd = go.Figure(go.Histogram(x=mc["max_dds"], nbinsx=40, marker_color="#ff7f0e"))
             fig_dd.update_layout(template="plotly_dark", height=280, margin=dict(t=30),
                                  title="Max Drawdown Distribution", xaxis_title="Max Drawdown (%)")
-            st.plotly_chart(fig_dd, use_container_width=True)
+            st.plotly_chart(fig_dd, width='stretch')
 
     st.markdown("---")
     st.subheader("Export Results")
@@ -380,17 +380,17 @@ def render_sweep():
                           yaxis_title="Out-of-Sample Profit Factor (test)",
                           xaxis_range=[0, lim], yaxis_range=[0, lim],
                           title="Each point = one parameter combo")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     cA, cB = st.columns(2)
     with cA:
         st.markdown("**Top by out-of-sample PF**")
         st.dataframe(df.dropna(subset=["oos_pf"]).sort_values("oos_pf", ascending=False)
-                       .head(8).reset_index(drop=True), use_container_width=True)
+                       .head(8).reset_index(drop=True), width='stretch')
     with cB:
         st.markdown("**Most overfit (largest IS→OOS drop)**")
         st.dataframe(df.dropna(subset=["gap"]).sort_values("gap", ascending=False)
-                       .head(8).reset_index(drop=True), use_container_width=True)
+                       .head(8).reset_index(drop=True), width='stretch')
 
     st.download_button("Download full sweep CSV", df.to_csv(index=False).encode(),
                        file_name="sweep_results.csv", mime="text/csv")
@@ -420,7 +420,7 @@ def render_wfo():
     oos_all = res["oos_all"]
 
     st.subheader("Per-Fold Chosen Parameters")
-    st.dataframe(fold_df, use_container_width=True)
+    st.dataframe(fold_df, width='stretch')
 
     if not oos_all.empty:
         m = calc_metrics(oos_all, starting_capital)
@@ -440,7 +440,7 @@ def render_wfo():
         fig.update_layout(template="plotly_dark", height=400,
                           title="Stitched Out-of-Sample Equity (params re-chosen each fold)",
                           xaxis_title="Date", yaxis_title="Account Value ($)")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
         if avg_train_pf and m["profit_factor"] < avg_train_pf * 0.6:
             st.warning("Realized OOS PF is well below the average chosen train PF — the "
