@@ -18,6 +18,19 @@ from .config import AppConfig
 from .engine import TradingEngine
 from .models import WebhookPayload, WebhookResponse
 from .state import StateStore
+from .traderspost import TradersPostBroker
+
+
+def build_broker(config: AppConfig):
+    """Construct the execution backend selected by ``config.broker_type``."""
+    if config.broker_type == "traderspost":
+        if not config.traderspost_webhook_url:
+            raise RuntimeError(
+                "BOT_TRADERSPOST_WEBHOOK_URL must be set when "
+                "BOT_BROKER_TYPE=traderspost")
+        return TradersPostBroker(config.traderspost_webhook_url,
+                                 config.account_equity)
+    return TradovateBroker(config.broker_base_url, config.broker_token)
 
 
 def create_app(engine: Optional[TradingEngine] = None,
@@ -31,7 +44,7 @@ def create_app(engine: Optional[TradingEngine] = None,
 
     if engine is None:
         store = StateStore(config.db_path)
-        broker = TradovateBroker(config.broker_base_url, config.broker_token)
+        broker = build_broker(config)
         engine = TradingEngine(config, store, broker)
 
     app = FastAPI(title="TradingView Futures Bot", version="1.0.0")

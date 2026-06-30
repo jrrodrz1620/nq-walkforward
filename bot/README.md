@@ -124,6 +124,31 @@ there, use a Droplet (above) or port `bot/state.py` to a Managed Postgres.
 > broker — and adapt the request/response shapes in `bot/broker.py` — before
 > trading live.
 
+## Connecting TradersPost
+
+[TradersPost](https://traderspost.io) is a webhook → broker bridge. Put this bot
+*in front* of it so your hard risk guardrails apply before anything reaches the
+broker: `TradingView → bot (risk gates) → TradersPost → paper/live account`.
+
+Set these in `.env` (the bot reads them via docker-compose):
+```bash
+BOT_BROKER_TYPE=traderspost
+BOT_TRADERSPOST_WEBHOOK_URL=https://webhooks.traderspost.io/trading/webhook/<id>/<token>
+BOT_ACCOUNT_EQUITY=50000     # your paper balance; drives the margin gate
+```
+Then `docker compose up -d --build`. Approved orders are POSTed to TradersPost as
+`{ticker, action, quantity, price, type}`.
+
+Two TradersPost-specific notes (see `bot/traderspost.py`):
+- **Equity**: TradersPost doesn't return live equity on the webhook path, so the
+  margin guardrail uses `BOT_ACCOUNT_EQUITY`. Keep it roughly in sync with your
+  account. (With $50k and the 50% cap, a 2-lot full-size ES is margin-rejected;
+  use micros or raise equity to size up.)
+- **Fills**: TradersPost acks *receipt*, not a fill, so positions in this bot
+  reflect what was **sent**. For exact fills, reconcile via TradersPost's API.
+- **Ticker**: the `ticker` sent is the root symbol (e.g. `ES`). Confirm it
+  matches the symbol your TradersPost strategy expects.
+
 ## Tests
 
 ```bash

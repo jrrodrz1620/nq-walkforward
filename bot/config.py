@@ -37,8 +37,17 @@ class RetryConfig:
 @dataclass(frozen=True)
 class AppConfig:
     passphrase: str = "change-me"
+    # Which execution backend to route approved orders to.
+    #   "stub"        -> built-in Tradovate-style mock (demo/testing)
+    #   "traderspost" -> POST to a TradersPost webhook (bridges to your broker)
+    broker_type: str = "stub"
     broker_base_url: str = "https://demo.tradovate.example/v1"
     broker_token: str = "demo-token"
+    # TradersPost webhook URL (https://webhooks.traderspost.io/trading/webhook/...).
+    traderspost_webhook_url: str = ""
+    # TradersPost doesn't expose live equity on the webhook path, so the margin
+    # guardrail runs off this configured account equity (set to your paper bal).
+    account_equity: float = 50_000.0
     db_path: str = "bot_state.db"
     error_log_path: str = "error_log.json"
     # Identical webhooks arriving within this window are treated as duplicates.
@@ -51,8 +60,13 @@ class AppConfig:
         """Build config from environment variables (used by the live server)."""
         return cls(
             passphrase=os.getenv("BOT_PASSPHRASE", cls.passphrase),
+            broker_type=os.getenv("BOT_BROKER_TYPE", cls.broker_type),
             broker_base_url=os.getenv("BOT_BROKER_URL", cls.broker_base_url),
             broker_token=os.getenv("BOT_BROKER_TOKEN", cls.broker_token),
+            traderspost_webhook_url=os.getenv(
+                "BOT_TRADERSPOST_WEBHOOK_URL", cls.traderspost_webhook_url),
+            account_equity=float(
+                os.getenv("BOT_ACCOUNT_EQUITY", cls.account_equity)),
             db_path=os.getenv("BOT_DB_PATH", cls.db_path),
             error_log_path=os.getenv("BOT_ERROR_LOG", cls.error_log_path),
         )
