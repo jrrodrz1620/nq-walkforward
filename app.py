@@ -5,6 +5,12 @@ import plotly.graph_objects as go
 import plotly.express as px
 import io
 
+from dataio import load_and_clean
+from metrics import split_folds, calc_metrics, monte_carlo
+from backtest import Params, generate_ohlc, load_ohlc_csv, run_backtest
+from sweep import run_sweep, GRID
+from wfo import walk_forward
+
 # Ensure openpyxl is installed for Excel writing: pip install openpyxl
 try:
     import openpyxl
@@ -31,7 +37,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
-# SIDEBAR
+# SIDEBAR  (analyzer settings)
 # ─────────────────────────────────────────────
 
 st.sidebar.title("⚙️ Walk-Forward Settings")
@@ -54,151 +60,15 @@ starting_capital = st.sidebar.number_input("Starting Capital ($)", value=50000, 
 contract_value   = st.sidebar.number_input("Points → $ Multiplier", value=20.0, step=1.0,
     help="NQ=20, MNQ=2, ES=50, MES=5")
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("Column Mapping")
-st.sidebar.caption("Auto-detected from TradingView export. Override if needed.")
-
 # ─────────────────────────────────────────────
-# HELPERS
+# ANALYZER HELPERS  (loaders & metrics live in dataio.py / metrics.py)
 # ─────────────────────────────────────────────
-
-TRADINGVIEW_COL_MAP = {
-    "Trade #":          "trade_num",
-    "Type":             "type",
-    "Signal":           "signal",
-    "Date/Time":        "entry_time",
-    "Price":            "entry_price",
-    "Contracts":        "contracts",
-    "Profit":           "profit_usd",
-    "Profit %":         "profit_pct",
-    "Cum. Profit":      "cum_profit",
-    "Run-up":           "runup",
-    "Run-up %":         "runup_pct",
-    "Drawdown":         "drawdown",
-    "Drawdown %":       "drawdown_pct",
-    "Entry Date/Time":  "entry_time",
-    "Exit Date/Time":   "exit_time",
-    "Entry Price":      "entry_price",
-    "Exit Price":       "exit_price",
-    "Net Profit":       "profit_usd",
-    "Net Profit %":     "profit_pct",
-}
-
-def load_and_clean(file, contract_multiplier) -> pd.DataFrame:
-    """Load XLSX/CSV and normalize to internal schema."""
-    if file.name.endswith(".csv"):
-        raw = pd.read_csv(file)
-    else:
-        xls = pd.ExcelFile(file)
-        sheet = xls.sheet_names[0]
-        # Try to find header row
-        preview = pd.read_excel(file, sheet_name=sheet, header=None, nrows=10)
-        header_row = 0
-        for i, row in preview.iterrows():
-            if any(str(v).strip() in ("Trade #", "Type", "Signal") for v in row.values):
-                header_row = i
-                break
-        raw = pd.read_excel(file, sheet_name=sheet, header=header_row)
-
-    rename = {k: v for k, v in TRADINGVIEW_COL_MAP.items() if k in raw.columns}
-    df = raw.rename(columns=rename)
-
-    if "trade_num" in df.columns:
-        df = df[pd.to_numeric(df["trade_num"], errors="coerce").notna()]
-
-    for col in ["entry_time", "exit_time"]:
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors="coerce")
-
-    for col in ["profit_usd", "cum_profit", "runup", "drawdown"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(
-                df[col].astype(str).str.replace(r"[$,%]", "", regex=True).str.strip(),
-                errors="coerce"
-            )
-
-    if "entry_time" not in df.columns:
-        time_cols = [c for c in df.columns if "date" in c.lower() or "time" in c.lower()]
-        if time_cols:
-            df["entry_time"] = pd.to_datetime(df[time_cols[0]], errors="coerce")
-
-    if "entry_time" not in df.columns or "profit_usd" not in df.columns:
-        return pd.DataFrame() # Return empty if critical columns missing
-
-    df = df.dropna(subset=["entry_time", "profit_usd"])
-    df = df.sort_values("entry_time").reset_index(drop=True)
-
-    if contract_multiplier > 0:
-        df["profit_pts"] = df["profit_usd"] / contract_multiplier
-
-    return df
-
-def split_folds(df: pd.DataFrame, n: int, train_pct: float):
-    """Split trades into walk-forward folds."""
-    total = len(df)
-    fold_size = total // n
-    folds = []
-    for i in range(n):
-        start = i * fold_size
-        end   = start + fold_size if i < n - 1 else total
-        chunk = df.iloc[start:end].copy()
-        split = int(len(chunk) * train_pct / 100)
-        train = chunk.iloc[:split]
-        test  = chunk.iloc[split:]
-        
-        if len(train) >= min_trades and len(test) >= 1:
-            folds.append({
-                "fold":       i + 1,
-                "train":      train,
-                "test":       test,
-                "train_start": train["entry_time"].iloc[0],
-                "train_end":   train["entry_time"].iloc[-1],
-                "test_start":  test["entry_time"].iloc[0],
-                "test_end":    test["entry_time"].iloc[-1],
-            })
-    return folds
-
-def calc_metrics(trades: pd.DataFrame, capital: float) -> dict:
-    """Calculate performance metrics for a set of trades."""
-    if len(trades) == 0:
-        return {
-            "n_trades": 0, "net_profit": 0, "win_rate": 0, 
-            "avg_win": 0, "avg_loss": 0, "profit_factor": 0, 
-            "max_dd": 0, "return_pct": 0
-        }
-    
-    pnl = trades["profit_usd"].values
-    wins  = pnl[pnl > 0]
-    losses = pnl[pnl < 0]
-
-    net_profit = pnl.sum()
-    win_rate   = len(wins) / len(pnl) * 100 if len(pnl) > 0 else 0
-    avg_win    = wins.mean()  if len(wins)   > 0 else 0
-    avg_loss   = losses.mean() if len(losses) > 0 else 0
-    profit_factor = abs(wins.sum() / losses.sum()) if losses.sum() != 0 else np.inf
-
-    equity = capital + np.cumsum(pnl)
-    peak   = np.maximum.accumulate(equity)
-    dd     = (equity - peak) / peak * 100
-    max_dd = dd.min()
-
-    return {
-        "n_trades":      len(pnl),
-        "net_profit":    net_profit,
-        "win_rate":      win_rate,
-        "avg_win":       avg_win,
-        "avg_loss":      avg_loss,
-        "profit_factor": profit_factor,
-        "max_dd":        max_dd,
-        "equity":        equity,
-        "return_pct":    net_profit / capital * 100,
-    }
 
 def equity_curve_fig(folds, capital):
     """Build OOS equity curve across all folds."""
     fig = go.Figure()
     running_capital = capital
-    
+
     for f in folds:
         test = f["test"]
         pnl  = test["profit_usd"].values
@@ -258,88 +128,110 @@ def fold_table(folds, capital):
         })
     return pd.DataFrame(rows)
 
+
 # ─────────────────────────────────────────────
-# MAIN APP
+# OHLC SOURCE  (shared by the Sweep & WFO tabs)
 # ─────────────────────────────────────────────
 
-st.title("Walk-Forward Analyzer — TradingView XLSX")
-st.caption("Upload your TradingView backtest export -> get out-of-sample performance analysis")
+def ohlc_source(key: str) -> pd.DataFrame:
+    """Let the user pick synthetic bars or upload an OHLC CSV."""
+    mode = st.radio("Price data", ["Synthetic (demo)", "Upload OHLC CSV"],
+                    horizontal=True, key=f"src_{key}")
+    if mode == "Upload OHLC CSV":
+        up = st.file_uploader("OHLC CSV (time, open, high, low, close)",
+                              type=["csv"], key=f"ohlc_{key}")
+        if up is None:
+            st.info("Upload an OHLC CSV to run on real bars.")
+            return pd.DataFrame()
+        try:
+            return load_ohlc_csv(up)
+        except Exception as e:  # noqa: BLE001
+            st.error(f"Could not parse OHLC CSV: {e}")
+            return pd.DataFrame()
+    bars = st.slider("Synthetic bars", 1000, 8000, 4000, step=500, key=f"bars_{key}")
+    return generate_ohlc(n_bars=bars)
 
-if uploaded_file is None:
-    st.info("Upload a TradingView backtest XLSX file to get started.")
-    st.stop()
 
-# ── Load data ──
+# ─────────────────────────────────────────────
+# TAB 1 — WALK-FORWARD ANALYZER (TradingView export)
+# ─────────────────────────────────────────────
 
-try:
-    df = load_and_clean(uploaded_file, contract_value)
-except Exception as e:
-    st.error(f"Failed to load file: {e}")
-    st.stop()
+def render_analyzer():
+    st.title("Walk-Forward Analyzer — TradingView XLSX")
+    st.caption("Upload your TradingView backtest export → out-of-sample performance analysis")
 
-if df.empty:
-    st.error("Could not find required columns (Date/Time, Profit) in the file.")
-    st.stop()
+    if uploaded_file is None:
+        st.info("Upload a TradingView backtest XLSX file in the sidebar to get started.")
+        return
 
-if len(df) < 10:
-    st.warning(f"Only {len(df)} trades found — need at least 10 to run walk-forward.")
-    st.dataframe(df)
-    st.stop()
+    try:
+        df = load_and_clean(uploaded_file, contract_value)
+    except Exception as e:
+        st.error(f"Failed to load file: {e}")
+        return
 
-st.success(f"Loaded {len(df)} trades from {uploaded_file.name}")
+    if df.empty:
+        st.error("Could not find required columns (Date/Time, Profit) in the file.")
+        return
 
-# ── Show raw data ──
+    if len(df) < 10:
+        st.warning(f"Only {len(df)} trades found — need at least 10 to run walk-forward.")
+        st.dataframe(df)
+        return
 
-with st.expander("Raw Trade Data", expanded=False):
-    st.dataframe(df, use_container_width=True)
+    st.success(f"Loaded {len(df)} trades from {uploaded_file.name}")
 
-# ── Split folds ──
+    with st.expander("Raw Trade Data", expanded=False):
+        st.dataframe(df, width='stretch')
 
-folds = split_folds(df, n_folds, train_pct)
-if len(folds) == 0:
-    st.error("Not enough trades to create folds. Reduce Min Trades per Fold or increase data.")
-    st.stop()
+    folds = split_folds(df, n_folds, train_pct, min_trades)
+    if len(folds) == 0:
+        st.error("Not enough trades to create folds. Reduce Min Trades per Fold or increase data.")
+        return
 
-# ── Overall metrics ──
+    overall = calc_metrics(df, starting_capital)
 
-overall = calc_metrics(df, starting_capital)
+    st.markdown("---")
+    st.subheader("Overall Performance")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Total Trades",    overall["n_trades"])
+    c2.metric("Net Profit",      f"${overall['net_profit']:,.0f}")
+    c3.metric("Win Rate",        f"{overall['win_rate']:.1f}%")
+    c4.metric("Profit Factor",   f"{overall['profit_factor']:.2f}")
+    c5.metric("Max Drawdown",    f"{overall['max_dd']:.1f}%")
 
-st.markdown("---")
-st.subheader("Overall Performance")
-c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("Total Trades",    overall["n_trades"])
-c2.metric("Net Profit",      f"${overall['net_profit']:,.0f}")
-c3.metric("Win Rate",        f"{overall['win_rate']:.1f}%")
-c4.metric("Profit Factor",   f"{overall['profit_factor']:.2f}")
-c5.metric("Max Drawdown",    f"{overall['max_dd']:.1f}%")
+    d1, d2, d3, d4, d5 = st.columns(5)
+    d1.metric("Expectancy / Trade", f"${overall['expectancy']:,.0f}",
+              help="Average $ result per trade (positive = edge).")
+    d2.metric("Avg R-Multiple",     f"{overall['avg_r']:.2f}R",
+              help="Average outcome in units of the average loss (1R). Approximate — TradingView exports don't carry stop distance.")
+    d3.metric("Payoff Ratio",       f"{overall['payoff']:.2f}",
+              help="Average win size ÷ average loss size.")
+    d4.metric("Sharpe (per-trade)", f"{overall['sharpe']:.2f}",
+              help="Mean trade PnL ÷ std of trade PnL. Trade-based, not annualized.")
+    d5.metric("Max Loss Streak",    overall["max_loss_streak"],
+              help="Longest run of consecutive losing trades — sizing/psychology check.")
 
-# ── Gantt chart ──
+    st.markdown("---")
+    st.subheader("Walk-Forward Windows")
+    st.plotly_chart(gantt_fig(folds), width='stretch')
 
-st.markdown("---")
-st.subheader("Walk-Forward Windows")
-st.plotly_chart(gantt_fig(folds), use_container_width=True)
+    st.subheader("Out-of-Sample Equity Curve")
+    st.plotly_chart(equity_curve_fig(folds, starting_capital), width='stretch')
 
-# ── OOS equity curve ──
+    st.subheader("Per-Fold Metrics")
+    ft = fold_table(folds, starting_capital)
+    st.dataframe(ft.style.background_gradient(
+        subset=["OOS WR%", "OOS PF", "OOS Net $"],
+        cmap="RdYlGn"
+    ), width='stretch')
 
-st.subheader("Out-of-Sample Equity Curve")
-st.plotly_chart(equity_curve_fig(folds, starting_capital), use_container_width=True)
+    st.markdown("---")
+    st.subheader("OOS Summary")
 
-# ── Per-fold table ──
-
-st.subheader("Per-Fold Metrics")
-ft = fold_table(folds, starting_capital)
-st.dataframe(ft.style.background_gradient(
-    subset=["OOS WR%", "OOS PF", "OOS Net $"],
-    cmap="RdYlGn"
-), use_container_width=True)
-
-# ── OOS summary ──
-
-st.markdown("---")
-st.subheader("OOS Summary")
-
-oos_all = pd.concat([f["test"] for f in folds])
-if len(oos_all) > 0:
+    oos_all = pd.concat([f["test"] for f in folds])
+    if len(oos_all) == 0:
+        return
     oos_metrics = calc_metrics(oos_all, starting_capital)
 
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -349,14 +241,11 @@ if len(oos_all) > 0:
     c4.metric("OOS Profit Factor",f"{oos_metrics['profit_factor']:.2f}")
     c5.metric("OOS Max DD",       f"{oos_metrics['max_dd']:.1f}%")
 
-    # ── Overfit detection ──
-
     st.markdown("---")
     st.subheader("Overfit Check")
 
     train_all = pd.concat([f["train"] for f in folds])
     train_metrics = calc_metrics(train_all, starting_capital)
-
     ratio_pf = oos_metrics["profit_factor"] / train_metrics["profit_factor"] if train_metrics["profit_factor"] > 0 else 0
 
     col1, col2 = st.columns(2)
@@ -368,8 +257,7 @@ if len(oos_all) > 0:
             marker_color=["#1f77b4", "#ff7f0e"]
         ))
         fig_pf.update_layout(template="plotly_dark", height=250, margin=dict(t=20))
-        st.plotly_chart(fig_pf, use_container_width=True)
-
+        st.plotly_chart(fig_pf, width='stretch')
     with col2:
         st.markdown("**Train vs OOS Win Rate**")
         fig_wr = go.Figure(go.Bar(
@@ -378,7 +266,7 @@ if len(oos_all) > 0:
             marker_color=["#1f77b4", "#ff7f0e"]
         ))
         fig_wr.update_layout(template="plotly_dark", height=250, margin=dict(t=20))
-        st.plotly_chart(fig_wr, use_container_width=True)
+        st.plotly_chart(fig_wr, width='stretch')
 
     if ratio_pf >= 0.8:
         st.success(f"OOS/Train PF ratio = {ratio_pf:.2f} — Strategy looks robust.")
@@ -387,44 +275,192 @@ if len(oos_all) > 0:
     else:
         st.error(f"OOS/Train PF ratio = {ratio_pf:.2f} — Likely overfit.")
 
-    # ── Monthly breakdown ──
-
     st.markdown("---")
     st.subheader("Monthly P&L (OOS Only)")
-
     oos_all["month"] = oos_all["entry_time"].dt.to_period("M").astype(str)
     monthly = oos_all.groupby("month")["profit_usd"].sum().reset_index()
     monthly.columns = ["Month", "Net P&L ($)"]
-
     fig_monthly = go.Figure(go.Bar(
         x=monthly["Month"],
         y=monthly["Net P&L ($)"],
         marker_color=["#2ecc71" if v >= 0 else "#e74c3c" for v in monthly["Net P&L ($)"]],
     ))
-    fig_monthly.update_layout(
-        template="plotly_dark", height=300,
-        xaxis_title="Month", yaxis_title="Net P&L ($)",
-        title="Monthly OOS P&L"
-    )
-    st.plotly_chart(fig_monthly, use_container_width=True)
+    fig_monthly.update_layout(template="plotly_dark", height=300,
+                              xaxis_title="Month", yaxis_title="Net P&L ($)", title="Monthly OOS P&L")
+    st.plotly_chart(fig_monthly, width='stretch')
 
-    # ── Export results ──
+    st.markdown("---")
+    st.subheader("Monte Carlo Simulation")
+    st.caption("Bootstrap-resamples your trades (with replacement) to map the range of "
+               "outcomes a single backtest can't show. Uses all trades, not just OOS.")
+    n_sims = st.slider("Simulations", 200, 5000, 2000, step=200, key="mc_sims")
+    mc = monte_carlo(df["profit_usd"].to_numpy(), starting_capital, n_sims=n_sims)
+    if mc:
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Final Equity p5",  f"${mc['final_p5']:,.0f}",
+                  help="5th percentile — a pessimistic but plausible outcome.")
+        m2.metric("Final Equity p50", f"${mc['final_p50']:,.0f}", help="Median outcome.")
+        m3.metric("Max DD p95",       f"{mc['maxdd_p95']:.1f}%",
+                  help="95th-percentile worst drawdown — size your risk for this.")
+        m4.metric("P(loss)",          f"{mc['prob_loss']:.1f}%",
+                  help="Share of simulations ending below starting capital.")
+        cmc1, cmc2 = st.columns(2)
+        with cmc1:
+            fig_fin = go.Figure(go.Histogram(x=mc["finals"], nbinsx=40, marker_color="#1f77b4"))
+            fig_fin.add_vline(x=starting_capital, line_dash="dash", line_color="white")
+            fig_fin.update_layout(template="plotly_dark", height=280, margin=dict(t=30),
+                                  title="Final Equity Distribution", xaxis_title="Account Value ($)")
+            st.plotly_chart(fig_fin, width='stretch')
+        with cmc2:
+            fig_dd = go.Figure(go.Histogram(x=mc["max_dds"], nbinsx=40, marker_color="#ff7f0e"))
+            fig_dd.update_layout(template="plotly_dark", height=280, margin=dict(t=30),
+                                 title="Max Drawdown Distribution", xaxis_title="Max Drawdown (%)")
+            st.plotly_chart(fig_dd, width='stretch')
 
     st.markdown("---")
     st.subheader("Export Results")
-
     output = io.BytesIO()
     try:
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             ft.to_excel(writer, sheet_name="Per-Fold Metrics", index=False)
             monthly.to_excel(writer, sheet_name="Monthly OOS PnL", index=False)
             oos_all.to_excel(writer, sheet_name="OOS Trades", index=False)
-        
         st.download_button(
             label="Download Results XLSX",
             data=output.getvalue(),
             file_name="walkforward_results.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-    except Exception as e:
-        st.error(f"Could not generate Excel file. Ensure 'openpyxl' is installed.")
+    except Exception:
+        st.error("Could not generate Excel file. Ensure 'openpyxl' is installed.")
+
+
+# ─────────────────────────────────────────────
+# TAB 2 — PARAMETER SWEEP (overfit map)
+# ─────────────────────────────────────────────
+
+def render_sweep():
+    st.title("Parameter Sweep — Overfit Map")
+    st.caption("Grid-search the Phantom Flow SMC strategy and compare in-sample vs "
+               "out-of-sample profit factor. Points below the diagonal degrade out-of-sample.")
+    st.caption("Grid: " + " · ".join(f"{k}={v}" for k, v in GRID.items()))
+
+    ohlc = ohlc_source("sweep")
+    if ohlc.empty:
+        return
+    if not st.button("Run sweep", key="run_sweep", type="primary"):
+        st.info(f"{len(ohlc):,} bars loaded. Click **Run sweep** to grid-search "
+                f"{int(np.prod([len(v) for v in GRID.values()]))} combos.")
+        return
+
+    with st.spinner("Backtesting every combo and walk-forward splitting…"):
+        df = run_sweep(ohlc)
+
+    plot = df.dropna(subset=["is_pf", "oos_pf"])
+    if not plot.empty:
+        lim = max(2.0, plot["is_pf"].max(), plot["oos_pf"].max()) * 1.05
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=plot["is_pf"], y=plot["oos_pf"], mode="markers",
+            marker=dict(size=12, color=plot["n_trades"], colorscale="Viridis",
+                        showscale=True, colorbar=dict(title="# trades"),
+                        line=dict(width=1, color="white")),
+            text=[f"swing={s}, rr={r}, {m}<br>trades={n}"
+                  for s, r, m, n in zip(plot["swing_length"], plot["rr_ratio"],
+                                        plot["stop_mode"], plot["n_trades"])],
+            hovertemplate="%{text}<br>IS PF=%{x:.2f}<br>OOS PF=%{y:.2f}<extra></extra>",
+        ))
+        fig.add_trace(go.Scatter(x=[0, lim], y=[0, lim], mode="lines",
+                                 line=dict(dash="dash", color="gray"),
+                                 name="IS = OOS (no degradation)"))
+        fig.add_hline(y=1.0, line_color="red", line_width=1, opacity=0.5)
+        fig.add_vline(x=1.0, line_color="red", line_width=1, opacity=0.5)
+        fig.update_layout(template="plotly_dark", height=480,
+                          xaxis_title="In-Sample Profit Factor (train)",
+                          yaxis_title="Out-of-Sample Profit Factor (test)",
+                          xaxis_range=[0, lim], yaxis_range=[0, lim],
+                          title="Each point = one parameter combo")
+        st.plotly_chart(fig, width='stretch')
+
+    cA, cB = st.columns(2)
+    with cA:
+        st.markdown("**Top by out-of-sample PF**")
+        st.dataframe(df.dropna(subset=["oos_pf"]).sort_values("oos_pf", ascending=False)
+                       .head(8).reset_index(drop=True), width='stretch')
+    with cB:
+        st.markdown("**Most overfit (largest IS→OOS drop)**")
+        st.dataframe(df.dropna(subset=["gap"]).sort_values("gap", ascending=False)
+                       .head(8).reset_index(drop=True), width='stretch')
+
+    st.download_button("Download full sweep CSV", df.to_csv(index=False).encode(),
+                       file_name="sweep_results.csv", mime="text/csv")
+
+
+# ─────────────────────────────────────────────
+# TAB 3 — WALK-FORWARD OPTIMIZATION
+# ─────────────────────────────────────────────
+
+def render_wfo():
+    st.title("Walk-Forward Optimization")
+    st.caption("Re-optimizes parameters on each train window, trades the winners on the next "
+               "out-of-sample window, and stitches the OOS results. The optimism gap "
+               "(train PF → realized OOS PF) is the real robustness signal.")
+
+    folds = st.slider("OOS folds", 3, 8, 4, key="wfo_folds")
+    ohlc = ohlc_source("wfo")
+    if ohlc.empty:
+        return
+    if not st.button("Run WFO", key="run_wfo", type="primary"):
+        st.info(f"{len(ohlc):,} bars loaded. Click **Run WFO** to re-optimize across {folds} folds.")
+        return
+
+    with st.spinner("Optimizing each fold and trading it forward…"):
+        res = walk_forward(ohlc, n_folds=folds)
+    fold_df = res["folds"]
+    oos_all = res["oos_all"]
+
+    st.subheader("Per-Fold Chosen Parameters")
+    st.dataframe(fold_df, width='stretch')
+
+    if not oos_all.empty:
+        m = calc_metrics(oos_all, starting_capital)
+        avg_train_pf = fold_df["train_pf"].replace(99.0, np.nan).mean()
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Stitched OOS Trades", m["n_trades"])
+        c2.metric("OOS Net", f"${m['net_profit']:,.0f}")
+        c3.metric("OOS PF", f"{m['profit_factor']:.2f}")
+        c4.metric("Optimism Gap", f"{avg_train_pf:.2f} → {m['profit_factor']:.2f}",
+                  help="Avg chosen train PF vs realized OOS PF. A big drop = curve-fitting.")
+
+        eq = starting_capital + oos_all["profit_usd"].cumsum()
+        fig = go.Figure(go.Scatter(x=oos_all["exit_time"], y=eq, mode="lines",
+                                   line=dict(width=2, color="#1f77b4"), name="Stitched OOS"))
+        fig.add_hline(y=starting_capital, line_dash="dash", line_color="gray")
+        fig.update_layout(template="plotly_dark", height=400,
+                          title="Stitched Out-of-Sample Equity (params re-chosen each fold)",
+                          xaxis_title="Date", yaxis_title="Account Value ($)")
+        st.plotly_chart(fig, width='stretch')
+
+        if avg_train_pf and m["profit_factor"] < avg_train_pf * 0.6:
+            st.warning("Realized OOS PF is well below the average chosen train PF — the "
+                       "optimizer is curve-fitting the training windows.")
+        else:
+            st.success("OOS performance tracks the optimizer's expectations reasonably well.")
+    else:
+        st.warning("No out-of-sample trades produced — try more bars or fewer folds.")
+
+
+# ─────────────────────────────────────────────
+# LAYOUT
+# ─────────────────────────────────────────────
+
+tab_an, tab_sweep, tab_wfo = st.tabs([
+    "📊 Walk-Forward Analyzer", "🔬 Parameter Sweep", "🔁 Walk-Forward Optimization"])
+
+with tab_an:
+    render_analyzer()
+with tab_sweep:
+    render_sweep()
+with tab_wfo:
+    render_wfo()
