@@ -90,6 +90,34 @@ Broker calls run through a truncated exponential-backoff retry (max 3 retries:
 atomically appends the context + a full state snapshot to `error_log.json`, then
 returns 503 — no phantom positions are left behind.
 
+## Deploy (Docker / DigitalOcean)
+
+The repo ships a portable `Dockerfile`, a `docker-compose.yml`, and a DO App
+Platform spec at `.do/app.yaml`. State + error log default to `/data` — mount a
+volume there so they survive restarts.
+
+**Droplet (recommended — durable SQLite state):**
+```bash
+cp .env.example .env      # fill in BOT_PASSPHRASE etc.
+docker compose up -d --build
+curl http://<droplet-ip>:8000/health
+```
+The named `bot_state` volume keeps positions + idempotency history across
+restarts and redeploys.
+
+**App Platform:**
+```bash
+doctl apps create --spec .do/app.yaml
+```
+⚠️ App Platform's filesystem is **ephemeral** — the SQLite state at `/data` is
+wiped on every redeploy, so positions/idempotency reset. For durable state
+there, use a Droplet (above) or port `bot/state.py` to a Managed Postgres.
+
+> The default broker URL is a **stub** (`demo.tradovate.example`) that fail-safes
+> to `error_log.json`. Set `BOT_BROKER_URL` / `BOT_BROKER_TOKEN` to your real
+> broker — and adapt the request/response shapes in `bot/broker.py` — before
+> trading live.
+
 ## Tests
 
 ```bash

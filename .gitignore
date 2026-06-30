@@ -15,3 +15,4 @@ bot_state.db-wal
 bot_state.db-shm
 error_log.json
 .venv/
+.env

@@ -1,0 +1,21 @@
+# Run the bot on a Droplet (or locally):  docker compose up -d --build
+# Copy .env.example -> .env and fill in your secrets first.
+services:
+  bot:
+    build: .
+    image: tradingview-futures-bot
+    ports:
+      - "8000:8000"
+    environment:
+      BOT_PASSPHRASE: ${BOT_PASSPHRASE:?set BOT_PASSPHRASE in .env}
+      BOT_BROKER_URL: ${BOT_BROKER_URL:-https://demo.tradovate.example/v1}
+      BOT_BROKER_TOKEN: ${BOT_BROKER_TOKEN:-demo-token}
+      BOT_DB_PATH: /data/bot_state.db
+      BOT_ERROR_LOG: /data/error_log.json
+    volumes:
+      # Named volume = durable state across restarts/redeploys.
+      - bot_state:/data
+    restart: unless-stopped
+
+volumes:
+  bot_state:

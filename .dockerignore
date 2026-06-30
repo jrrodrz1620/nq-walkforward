@@ -1,0 +1,16 @@
+.git/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+# repo research artifacts, not needed in the bot image
+*.xlsx
+*.png
+sweep_results.csv
+# runtime state must come from the mounted volume, never the image
+*.db
+*.db-wal
+*.db-shm
+error_log.json
+test_results.txt
