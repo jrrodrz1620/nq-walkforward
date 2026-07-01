@@ -47,7 +47,12 @@ def create_app(engine: Optional[TradingEngine] = None,
     if engine is None:
         store = StateStore(config.db_path)
         broker = build_broker(config)
-        engine = TradingEngine(config, store, broker)
+        notifier = None
+        if config.telegram_token and config.telegram_chat_id:
+            from .notify import TelegramNotifier
+            notifier = TelegramNotifier(config.telegram_token,
+                                        config.telegram_chat_id)
+        engine = TradingEngine(config, store, broker, notifier=notifier)
 
     app = FastAPI(title="TradingView Futures Bot", version="1.0.0")
     app.state.engine = engine

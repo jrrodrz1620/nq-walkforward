@@ -156,6 +156,16 @@ Two TradersPost-specific notes (see `bot/traderspost.py`):
 - **Ticker**: the `ticker` sent is the root symbol (e.g. `ES`). Confirm it
   matches the symbol your TradersPost strategy expects.
 
+## Telegram alerts (optional)
+
+Get a message on every fill / rejection / critical error:
+```bash
+BOT_TELEGRAM_TOKEN=123456:ABC...     # from @BotFather
+BOT_TELEGRAM_CHAT_ID=987654321       # from @userinfobot
+```
+Leave empty to disable. Sending is best-effort and fully isolated — if Telegram
+is down it never affects order processing.
+
 ## Tests
 
 ```bash

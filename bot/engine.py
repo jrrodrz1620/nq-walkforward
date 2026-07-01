@@ -43,15 +43,32 @@ class EngineResult:
 class TradingEngine:
     def __init__(self, config: AppConfig, store: StateStore,
                  broker: TradovateBroker,
-                 sleep: Callable[[float], None] = time.sleep):
+                 sleep: Callable[[float], None] = time.sleep,
+                 notifier=None):
         self.config = config
         self.store = store
         self.broker = broker
         self.risk = RiskManager(config.risk, store)
         self._sleep = sleep
+        self.notifier = notifier
 
     # ── public entrypoint ───────────────────────────────────────────
     def process_webhook(self, payload: WebhookPayload) -> EngineResult:
+        result = self._process(payload)
+        self._notify(payload, result)
+        return result
+
+    def _notify(self, payload: WebhookPayload, result: EngineResult) -> None:
+        """Best-effort Telegram alert; never affects order handling."""
+        if self.notifier is None or result.status == "duplicate":
+            return
+        try:
+            from .notify import format_result
+            self.notifier.send(format_result(payload, result))
+        except Exception:
+            pass
+
+    def _process(self, payload: WebhookPayload) -> EngineResult:
         key = payload.idempotency_key()
 
         # Resolve contract first so an unknown symbol never claims a key.
