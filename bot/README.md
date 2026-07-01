@@ -156,6 +156,16 @@ Two TradersPost-specific notes (see `bot/traderspost.py`):
 - **Ticker**: the `ticker` sent is the root symbol (e.g. `ES`). Confirm it
   matches the symbol your TradersPost strategy expects.
 
+## Web dashboard (optional)
+
+Set a token to enable a live browser dashboard (positions, day PnL, recent
+orders), auto-refreshing every 5s:
+```bash
+BOT_DASHBOARD_TOKEN=some-long-random-string
+```
+Then open `https://<host>/dashboard?token=some-long-random-string`. Token-gated
+so it isn't exposed to internet scanners; empty token disables it entirely.
+
 ## Telegram alerts (optional)
 
 Get a message on every fill / rejection / critical error:

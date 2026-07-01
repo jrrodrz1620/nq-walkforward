@@ -10,15 +10,21 @@ from __future__ import annotations
 import hmac
 from typing import Optional
 
-from fastapi import Depends, FastAPI
-from fastapi.responses import JSONResponse
+from fastapi import Depends, FastAPI, Query
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from .broker import TradovateBroker
 from .config import AppConfig
+from .dashboard import DASHBOARD_HTML
 from .engine import TradingEngine
 from .models import WebhookPayload, WebhookResponse
 from .state import StateStore
 from .traderspost import TradersPostBroker
+
+try:
+    from .contracts import get_contract as _get_contract
+except Exception:  # pragma: no cover
+    _get_contract = None
 
 
 def build_broker(config: AppConfig):
@@ -95,6 +101,45 @@ def create_app(engine: Optional[TradingEngine] = None,
             "open_positions": [vars(p) for p in eng.store.open_positions()],
             "realized_pnl_today": eng.store.realized_pnl_today(),
             "day_pnl_mtm": eng.risk.marked_to_market_day_pnl(),
+        }
+
+    # ── web dashboard (token-guarded) ───────────────────────────────
+    def _dash_ok(token: str) -> bool:
+        secret = app.state.config.dashboard_token
+        return bool(secret) and hmac.compare_digest(token or "", secret)
+
+    @app.get("/dashboard", response_class=HTMLResponse)
+    def dashboard(token: str = Query("")):
+        if not _dash_ok(token):
+            return HTMLResponse(
+                "<body style='font:16px system-ui;background:#0e1117;color:#e6edf3;"
+                "padding:40px'>Unauthorized. Open "
+                "<code>/dashboard?token=YOUR_BOT_DASHBOARD_TOKEN</code>"
+                " (set <code>BOT_DASHBOARD_TOKEN</code> to enable).</body>",
+                status_code=401)
+        return HTMLResponse(DASHBOARD_HTML)
+
+    @app.get("/api/state")
+    def api_state(token: str = Query(""),
+                  eng: TradingEngine = Depends(get_engine)):
+        if not _dash_ok(token):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        positions = []
+        for p in eng.store.open_positions():
+            mult = 1.0
+            if _get_contract is not None:
+                try:
+                    mult = _get_contract(p.symbol).multiplier
+                except Exception:
+                    pass
+            positions.append({**vars(p), "multiplier": mult})
+        return {
+            "broker_type": app.state.config.broker_type,
+            "day_pnl_mtm": eng.risk.marked_to_market_day_pnl(),
+            "realized_pnl_today": eng.store.realized_pnl_today(),
+            "positions": positions,
+            "orders": [vars(o) for o in eng.store.recent_orders(25)],
+            "transactions": eng.store.recent_transactions(25),
         }
 
     return app

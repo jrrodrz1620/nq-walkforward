@@ -57,6 +57,8 @@ class AppConfig:
     # Optional Telegram alerts (empty = disabled).
     telegram_token: str = ""
     telegram_chat_id: str = ""
+    # Token guarding the web dashboard (empty = dashboard disabled).
+    dashboard_token: str = ""
     db_path: str = "bot_state.db"
     error_log_path: str = "error_log.json"
     # Identical webhooks arriving within this window are treated as duplicates.
@@ -82,6 +84,7 @@ class AppConfig:
                 os.getenv("BOT_TAKE_PROFIT_POINTS", cls.take_profit_points)),
             telegram_token=os.getenv("BOT_TELEGRAM_TOKEN", cls.telegram_token),
             telegram_chat_id=os.getenv("BOT_TELEGRAM_CHAT_ID", cls.telegram_chat_id),
+            dashboard_token=os.getenv("BOT_DASHBOARD_TOKEN", cls.dashboard_token),
             db_path=os.getenv("BOT_DB_PATH", cls.db_path),
             error_log_path=os.getenv("BOT_ERROR_LOG", cls.error_log_path),
         )

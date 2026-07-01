@@ -26,6 +26,8 @@ services:
       # Optional Telegram alerts (leave empty to disable).
       BOT_TELEGRAM_TOKEN: ${BOT_TELEGRAM_TOKEN:-}
       BOT_TELEGRAM_CHAT_ID: ${BOT_TELEGRAM_CHAT_ID:-}
+      # Web dashboard token (empty = dashboard disabled).
+      BOT_DASHBOARD_TOKEN: ${BOT_DASHBOARD_TOKEN:-}
       BOT_DB_PATH: /data/bot_state.db
       BOT_ERROR_LOG: /data/error_log.json
     volumes:

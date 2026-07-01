@@ -344,6 +344,20 @@ class StateStore:
             ).fetchall()
             return [dict(r) for r in rows]
 
+    def recent_orders(self, limit: int = 25) -> list[OrderRecord]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM orders ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
+            return [self._row_to_order(r) for r in rows]
+
+    def recent_transactions(self, limit: int = 25) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM transactions ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
+            return [dict(r) for r in rows]
+
     def snapshot(self) -> dict:
         """Full serialisable state snapshot (used by the error logger)."""
         with self._lock:
