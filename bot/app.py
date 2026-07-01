@@ -30,7 +30,8 @@ def build_broker(config: AppConfig):
                 "BOT_BROKER_TYPE=traderspost")
         return TradersPostBroker(config.traderspost_webhook_url,
                                  config.account_equity,
-                                 stop_loss_points=config.stop_loss_points)
+                                 stop_loss_points=config.stop_loss_points,
+                                 take_profit_points=config.take_profit_points)
     return TradovateBroker(config.broker_base_url, config.broker_token)
 
 

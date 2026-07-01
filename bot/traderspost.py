@@ -34,13 +34,14 @@ from .contracts import get_contract
 
 class TradersPostBroker:
     def __init__(self, webhook_url: str, account_equity: float,
-                 stop_loss_points: float = 0.0,
+                 stop_loss_points: float = 0.0, take_profit_points: float = 0.0,
                  client: Optional[httpx.Client] = None, timeout: float = 10.0):
         if not webhook_url:
             raise ValueError("TradersPost webhook URL is required")
         self.webhook_url = webhook_url
         self.account_equity = float(account_equity)
         self.stop_loss_points = float(stop_loss_points)
+        self.take_profit_points = float(take_profit_points)
         self.timeout = timeout
         self._client = client or httpx.Client(timeout=timeout)
         self._owns_client = client is None
@@ -59,20 +60,24 @@ class TradersPostBroker:
         )
 
     # ── orders ──────────────────────────────────────────────────────
-    def _stop_price(self, req: OrderRequest) -> Optional[float]:
-        """Protective stop price ``stop_loss_points`` away from the signal, on
-        the losing side of the trade, rounded to the contract's tick."""
-        if self.stop_loss_points <= 0:
-            return None
-        # Long (buy) → stop below; short (sell) → stop above.
-        raw = (req.price - self.stop_loss_points if req.action == "buy"
-               else req.price + self.stop_loss_points)
+    def _tick_round(self, symbol: str, price: float) -> float:
         try:
-            tick = get_contract(req.symbol).tick_size
-            raw = round(round(raw / tick) * tick, 10)
+            tick = get_contract(symbol).tick_size
+            return round(round(price / tick) * tick, 10)
         except Exception:
-            pass
-        return raw
+            return price
+
+    def _bracket_price(self, req: OrderRequest, points: float,
+                       protective: bool) -> Optional[float]:
+        """Price ``points`` away from the signal. ``protective=True`` puts it on
+        the losing side (stop); ``False`` on the winning side (take profit)."""
+        if points <= 0:
+            return None
+        long = req.action == "buy"
+        # stop: below for long / above for short. take-profit: opposite.
+        below = (long == protective)
+        raw = req.price - points if below else req.price + points
+        return self._tick_round(req.symbol, raw)
 
     def _payload(self, req: OrderRequest) -> dict:
         """Map an internal OrderRequest to a TradersPost webhook payload."""
@@ -83,9 +88,12 @@ class TradersPostBroker:
             "price": req.price,
             "type": req.order_type,        # market
         }
-        stop = self._stop_price(req)
+        stop = self._bracket_price(req, self.stop_loss_points, protective=True)
         if stop is not None:
             payload["stopLoss"] = {"type": "stop", "stopPrice": stop}
+        tp = self._bracket_price(req, self.take_profit_points, protective=False)
+        if tp is not None:
+            payload["takeProfit"] = {"limitPrice": tp}
         return payload
 
     def place_order(self, req: OrderRequest) -> OrderResult:

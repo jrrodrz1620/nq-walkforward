@@ -20,6 +20,9 @@ services:
       BOT_ACCOUNT_EQUITY: ${BOT_ACCOUNT_EQUITY:-50000}
       # Protective stop distance in points attached to each order (0 = off).
       BOT_STOP_LOSS_POINTS: ${BOT_STOP_LOSS_POINTS:-0}
+      # Take-profit distance in points (0 = off). Some brokers require BOTH
+      # stop + take-profit (they reject a lone stop as an unsupported OTO order).
+      BOT_TAKE_PROFIT_POINTS: ${BOT_TAKE_PROFIT_POINTS:-0}
       BOT_DB_PATH: /data/bot_state.db
       BOT_ERROR_LOG: /data/error_log.json
     volumes:

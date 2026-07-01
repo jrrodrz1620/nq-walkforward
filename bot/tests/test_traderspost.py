@@ -78,6 +78,24 @@ def test_stop_loss_attached_for_short_and_tick_rounded():
     assert seen["stopLoss"]["stopPrice"] == 5037.5
 
 
+def test_full_bracket_stop_and_take_profit():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, json={"id": "x"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    b = TradersPostBroker("https://webhooks.traderspost.io/x", 50_000,
+                          stop_loss_points=40, take_profit_points=60,
+                          client=client)
+    b.place_order(OrderRequest("MES", "2025-12", "buy", 1, 5000.0))
+    # Long: stop 40 below, take-profit 60 above.
+    assert seen["stopLoss"] == {"type": "stop", "stopPrice": 4960.0}
+    assert seen["takeProfit"] == {"limitPrice": 5060.0}
+
+
 def test_no_stop_when_disabled():
     seen = {}
 

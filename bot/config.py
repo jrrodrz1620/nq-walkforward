@@ -51,6 +51,9 @@ class AppConfig:
     # Protective stop distance in points, attached to every TradersPost order
     # (0 = no stop). e.g. MES 40 = 40 pts = $200; MNQ 80 = 80 pts = $160.
     stop_loss_points: float = 0.0
+    # Take-profit distance in points (0 = none). Some brokers reject a lone stop
+    # (OTO not supported) and require a full bracket — set both to satisfy that.
+    take_profit_points: float = 0.0
     db_path: str = "bot_state.db"
     error_log_path: str = "error_log.json"
     # Identical webhooks arriving within this window are treated as duplicates.
@@ -72,6 +75,8 @@ class AppConfig:
                 os.getenv("BOT_ACCOUNT_EQUITY", cls.account_equity)),
             stop_loss_points=float(
                 os.getenv("BOT_STOP_LOSS_POINTS", cls.stop_loss_points)),
+            take_profit_points=float(
+                os.getenv("BOT_TAKE_PROFIT_POINTS", cls.take_profit_points)),
             db_path=os.getenv("BOT_DB_PATH", cls.db_path),
             error_log_path=os.getenv("BOT_ERROR_LOG", cls.error_log_path),
         )
