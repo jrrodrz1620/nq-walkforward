@@ -42,6 +42,17 @@ services:
       - caddy_config:/config
     restart: unless-stopped
 
+  # Streamlit walk-forward analyzer — on-demand, localhost-only (SSH tunnel).
+  # Not started by default; launch with:  docker compose --profile tools up -d analyzer
+  analyzer:
+    build:
+      context: .
+      dockerfile: Dockerfile.analyzer
+    profiles: ["tools"]
+    ports:
+      - "127.0.0.1:8501:8501"   # bound to localhost — reach via SSH tunnel only
+    restart: unless-stopped
+
 volumes:
   bot_state:
   caddy_data:
