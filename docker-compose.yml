@@ -18,6 +18,8 @@ services:
       # TradersPost (used when BOT_BROKER_TYPE=traderspost)
       BOT_TRADERSPOST_WEBHOOK_URL: ${BOT_TRADERSPOST_WEBHOOK_URL:-}
       BOT_ACCOUNT_EQUITY: ${BOT_ACCOUNT_EQUITY:-50000}
+      # Protective stop distance in points attached to each order (0 = off).
+      BOT_STOP_LOSS_POINTS: ${BOT_STOP_LOSS_POINTS:-0}
       BOT_DB_PATH: /data/bot_state.db
       BOT_ERROR_LOG: /data/error_log.json
     volumes:

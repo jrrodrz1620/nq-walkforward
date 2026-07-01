@@ -135,7 +135,14 @@ Set these in `.env` (the bot reads them via docker-compose):
 BOT_BROKER_TYPE=traderspost
 BOT_TRADERSPOST_WEBHOOK_URL=https://webhooks.traderspost.io/trading/webhook/<id>/<token>
 BOT_ACCOUNT_EQUITY=50000     # your paper balance; drives the margin gate
+BOT_STOP_LOSS_POINTS=40      # protective stop in points, 0 = off (MES 40 = $200)
 ```
+
+**Protective stop**: when `BOT_STOP_LOSS_POINTS > 0`, the bot attaches a
+`stopLoss` (`{"type":"stop","stopPrice":...}`) to every TradersPost order,
+placed that many points on the losing side of the signal price and snapped to
+the contract's tick. Handy when the strategy has no built-in stop and you can't
+set one in TradersPost's UI.
 Then `docker compose up -d --build`. Approved orders are POSTed to TradersPost as
 `{ticker, action, quantity, price, type}`.
 

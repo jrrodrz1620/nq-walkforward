@@ -46,6 +46,53 @@ def test_place_order_posts_traderspost_payload():
     assert res.fill_price == 5000.0
 
 
+def test_stop_loss_attached_for_long():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, json={"id": "x"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    b = TradersPostBroker("https://webhooks.traderspost.io/x", 50_000,
+                          stop_loss_points=40, client=client)
+    b.place_order(OrderRequest("MES", "2025-12", "buy", 1, 5000.0))
+    # MES tick 0.25; long stop 40 pts below entry.
+    assert seen["stopLoss"] == {"type": "stop", "stopPrice": 4960.0}
+
+
+def test_stop_loss_attached_for_short_and_tick_rounded():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, json={"id": "x"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    b = TradersPostBroker("https://webhooks.traderspost.io/x", 50_000,
+                          stop_loss_points=37.6, client=client)
+    b.place_order(OrderRequest("MES", "2025-12", "sell", 1, 5000.0))
+    # short stop above entry, snapped to 0.25 tick: 5037.6 -> 5037.5
+    assert seen["stopLoss"]["stopPrice"] == 5037.5
+
+
+def test_no_stop_when_disabled():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, json={"id": "x"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    b = TradersPostBroker("https://webhooks.traderspost.io/x", 50_000,
+                          stop_loss_points=0, client=client)
+    b.place_order(OrderRequest("MES", "2025-12", "buy", 1, 5000.0))
+    assert "stopLoss" not in seen
+
+
 def test_place_order_without_id_synthesizes_one():
     res = _broker(lambda r: httpx.Response(200, text="ok")).place_order(
         OrderRequest("MNQ", "2025-12", "sell", 1, 18000.0))

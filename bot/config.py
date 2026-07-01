@@ -48,6 +48,9 @@ class AppConfig:
     # TradersPost doesn't expose live equity on the webhook path, so the margin
     # guardrail runs off this configured account equity (set to your paper bal).
     account_equity: float = 50_000.0
+    # Protective stop distance in points, attached to every TradersPost order
+    # (0 = no stop). e.g. MES 40 = 40 pts = $200; MNQ 80 = 80 pts = $160.
+    stop_loss_points: float = 0.0
     db_path: str = "bot_state.db"
     error_log_path: str = "error_log.json"
     # Identical webhooks arriving within this window are treated as duplicates.
@@ -67,6 +70,8 @@ class AppConfig:
                 "BOT_TRADERSPOST_WEBHOOK_URL", cls.traderspost_webhook_url),
             account_equity=float(
                 os.getenv("BOT_ACCOUNT_EQUITY", cls.account_equity)),
+            stop_loss_points=float(
+                os.getenv("BOT_STOP_LOSS_POINTS", cls.stop_loss_points)),
             db_path=os.getenv("BOT_DB_PATH", cls.db_path),
             error_log_path=os.getenv("BOT_ERROR_LOG", cls.error_log_path),
         )

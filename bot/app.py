@@ -29,7 +29,8 @@ def build_broker(config: AppConfig):
                 "BOT_TRADERSPOST_WEBHOOK_URL must be set when "
                 "BOT_BROKER_TYPE=traderspost")
         return TradersPostBroker(config.traderspost_webhook_url,
-                                 config.account_equity)
+                                 config.account_equity,
+                                 stop_loss_points=config.stop_loss_points)
     return TradovateBroker(config.broker_base_url, config.broker_token)
 
 
