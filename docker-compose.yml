@@ -28,6 +28,8 @@ services:
       BOT_TELEGRAM_CHAT_ID: ${BOT_TELEGRAM_CHAT_ID:-}
       # Web dashboard token (empty = dashboard disabled).
       BOT_DASHBOARD_TOKEN: ${BOT_DASHBOARD_TOKEN:-}
+      # Daily Telegram P/L summary at HH:MM UTC (empty = off).
+      BOT_SUMMARY_TIME_UTC: ${BOT_SUMMARY_TIME_UTC:-}
       BOT_DB_PATH: /data/bot_state.db
       BOT_ERROR_LOG: /data/error_log.json
     volumes:

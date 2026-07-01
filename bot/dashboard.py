@@ -55,10 +55,15 @@ async function tick(){
     const d = await r.json();
     $('dot').textContent = 'updated ' + new Date().toLocaleTimeString();
 
+    const s = d.stats || {};
     $('cards').innerHTML = [
       ['Day PnL (MtM)', money(d.day_pnl_mtm), cls(d.day_pnl_mtm)],
       ['Realized today', money(d.realized_pnl_today), cls(d.realized_pnl_today)],
+      ['Realized (all)', money(s.realized_total||0), cls(s.realized_total||0)],
+      ['Current DD', money(s.current_drawdown||0), cls(s.current_drawdown||0)],
+      ['Max DD', money(s.max_drawdown||0), cls(s.max_drawdown||0)],
       ['Open positions', d.positions.length, ''],
+      ['Total trades', s.total_trades||0, 'muted'],
       ['Broker', d.broker_type, 'muted'],
     ].map(([l,v,c])=>`<div class="card"><div class="lbl">${l}</div><div class="val ${c}">${v}</div></div>`).join('');
 

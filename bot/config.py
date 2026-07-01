@@ -59,6 +59,8 @@ class AppConfig:
     telegram_chat_id: str = ""
     # Token guarding the web dashboard (empty = dashboard disabled).
     dashboard_token: str = ""
+    # Daily Telegram P/L summary at this UTC time "HH:MM" (empty = off).
+    summary_time_utc: str = ""
     db_path: str = "bot_state.db"
     error_log_path: str = "error_log.json"
     # Identical webhooks arriving within this window are treated as duplicates.
@@ -85,6 +87,7 @@ class AppConfig:
             telegram_token=os.getenv("BOT_TELEGRAM_TOKEN", cls.telegram_token),
             telegram_chat_id=os.getenv("BOT_TELEGRAM_CHAT_ID", cls.telegram_chat_id),
             dashboard_token=os.getenv("BOT_DASHBOARD_TOKEN", cls.dashboard_token),
+            summary_time_utc=os.getenv("BOT_SUMMARY_TIME_UTC", cls.summary_time_utc),
             db_path=os.getenv("BOT_DB_PATH", cls.db_path),
             error_log_path=os.getenv("BOT_ERROR_LOG", cls.error_log_path),
         )

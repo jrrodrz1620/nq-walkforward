@@ -176,6 +176,12 @@ BOT_TELEGRAM_CHAT_ID=987654321       # from @userinfobot
 Leave empty to disable. Sending is best-effort and fully isolated — if Telegram
 is down it never affects order processing.
 
+**Daily summary + drawdown.** Set `BOT_SUMMARY_TIME_UTC=HH:MM` for a once-a-day
+Telegram recap (today's realized PnL, open positions, current + max drawdown).
+The same figures show live on the dashboard, and `GET /api/summary?token=...&send=1`
+posts the recap on demand. Drawdown is computed from the realized-equity curve
+in the transaction history.
+
 ## Tests
 
 ```bash

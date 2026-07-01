@@ -358,6 +358,31 @@ class StateStore:
             ).fetchall()
             return [dict(r) for r in rows]
 
+    def equity_stats(self, trade_date: Optional[str] = None) -> dict:
+        """Realized-equity curve stats from the transaction history:
+        cumulative PnL, peak, max drawdown, current drawdown, and today's tally."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT realized_pnl, trade_date FROM transactions ORDER BY id"
+            ).fetchall()
+        cum = peak = 0.0
+        max_dd = 0.0
+        for r in rows:
+            cum += r["realized_pnl"]
+            peak = max(peak, cum)
+            max_dd = min(max_dd, cum - peak)
+        today = trade_date or _today_str()
+        today_rows = [r for r in rows if r["trade_date"] == today]
+        return {
+            "realized_total": cum,
+            "peak_equity": peak,
+            "max_drawdown": max_dd,                 # most negative dip (<=0)
+            "current_drawdown": cum - peak,         # 0 at a new high, else <0
+            "today_realized": sum(r["realized_pnl"] for r in today_rows),
+            "today_trades": len(today_rows),
+            "total_trades": len(rows),
+        }
+
     def snapshot(self) -> dict:
         """Full serialisable state snapshot (used by the error logger)."""
         with self._lock:

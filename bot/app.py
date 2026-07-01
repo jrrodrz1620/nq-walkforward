@@ -41,6 +41,14 @@ def build_broker(config: AppConfig):
     return TradovateBroker(config.broker_base_url, config.broker_token)
 
 
+def _summary_text(eng: TradingEngine) -> str:
+    """Build the daily P/L summary text from live engine state."""
+    from .summary import build_summary
+    positions = [vars(p) for p in eng.store.open_positions()]
+    return build_summary(eng.store.equity_stats(),
+                         eng.risk.marked_to_market_day_pnl(), positions)
+
+
 def create_app(engine: Optional[TradingEngine] = None,
                config: Optional[AppConfig] = None) -> FastAPI:
     """Application factory.
@@ -137,10 +145,28 @@ def create_app(engine: Optional[TradingEngine] = None,
             "broker_type": app.state.config.broker_type,
             "day_pnl_mtm": eng.risk.marked_to_market_day_pnl(),
             "realized_pnl_today": eng.store.realized_pnl_today(),
+            "stats": eng.store.equity_stats(),
             "positions": positions,
             "orders": [vars(o) for o in eng.store.recent_orders(25)],
             "transactions": eng.store.recent_transactions(25),
         }
+
+    @app.get("/api/summary")
+    def api_summary(token: str = Query(""), send: int = Query(0),
+                    eng: TradingEngine = Depends(get_engine)):
+        if not _dash_ok(token):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        text = _summary_text(eng)
+        sent = bool(send) and eng.notifier is not None and eng.notifier.send(text)
+        return {"summary": text, "sent": bool(sent)}
+
+    # Daily Telegram summary scheduler (best-effort; live deployments only).
+    if engine.notifier is not None and config.summary_time_utc:
+        from .summary import DailySummaryScheduler
+        app.state.scheduler = DailySummaryScheduler(
+            config.summary_time_utc,
+            lambda: engine.notifier.send(_summary_text(engine)),
+        ).start()
 
     return app
 
