@@ -14,6 +14,7 @@ around the **Phantom Flow SMC** strategy but works with any TradingView
 | `sweep.py` | `python sweep.py` | Grid-searches key parameters and plots an **overfit map** (in-sample vs out-of-sample PF) so you keep robust settings, not in-sample winners. |
 | `wfo.py` | `python wfo.py` | **Walk-forward optimization**: re-optimizes params on each train window, trades them on the next OOS window, stitches the OOS equity. The optimism gap (train PF → OOS PF) is the real robustness signal. |
 | `test_backtest.py` | `python test_backtest.py` *or* `pytest` | Unit tests for the fill logic (target/stop/partial/breakeven) + run_backtest invariants. |
+| `prop-firm-simulator/` | `cd prop-firm-simulator && npm install && npm run dev` | **Prop Firm Readiness Analyzer** (React/Vite) — upload a TradingView export and simulate the eval + funded lifecycle (drawdown, consistency, payouts, fees) across Apex, TopStep, Lucid, and BluSky, with Monte Carlo pass-rate estimates. See its [README](prop-firm-simulator/README.md). |
 
 ### Backtest harness
 
