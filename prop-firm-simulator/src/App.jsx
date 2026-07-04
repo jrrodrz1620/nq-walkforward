@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, useRef } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer, BarChart, Bar, Cell } from "recharts";
+import { parseTV, groupByDay, calcStats } from "./parse.js";
 
 // ─── FIRM CONFIGS ─────────────────────────────────────────────────────────────
 const FIRMS = {
@@ -19,42 +20,6 @@ const FIRMS = {
 const f$ = (v,abs) => { const n=abs?Math.abs(v):v; return (n<0?"-$":"$")+Math.abs(n).toLocaleString("en-US",{maximumFractionDigits:0}); };
 const fPct = v => `${(v*100).toFixed(1)}%`;
 let _id=0; const uid=()=>String(++_id);
-
-// ─── CSV PARSING ──────────────────────────────────────────────────────────────
-function parseTV(rows) {
-  const norm=k=>k?.trim().toLowerCase().replace(/[^a-z0-9]/g,"");
-  const find=(r,...pats)=>{for(const p of pats){const k=Object.keys(r).find(k=>norm(k).includes(p));if(k&&r[k]!==undefined&&r[k]!=="")return r[k].toString().trim();}return undefined;};
-  return rows.reduce((trades,r)=>{
-    const rP=find(r,"netplusd","profit","pnl","pl","net","gain","return");
-    const rD=find(r,"dateandtime","datetime","date","time","timestamp");
-    const rT=find(r,"type","signal","direction","side")??"";
-    if(!rD||rP===undefined) return trades;
-    const profit=parseFloat(rP.replace(/[^0-9.\-]/g,""));
-    if(isNaN(profit)) return trades;
-    if((rT.toLowerCase().includes("entry")||rT.toLowerCase().includes("open"))&&profit===0) return trades;
-    const dp=rD.trim().split(/[\s,T]/)[0];
-    let date=null;
-    if(/^\d{4}-\d{2}-\d{2}$/.test(dp)) date=dp;
-    else if(/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(dp)){const[m,d,y]=dp.split("/");date=`${y}-${m.padStart(2,"0")}-${d.padStart(2,"0")}`;}
-    else{const d=new Date(rD);if(!isNaN(d))date=d.toISOString().split("T")[0];}
-    if(date) trades.push({date,profit});
-    return trades;
-  },[]);
-}
-function groupByDay(trades){
-  const map={};
-  for(const t of trades) map[t.date]=(map[t.date]||0)+t.profit;
-  return Object.entries(map).sort((a,b)=>a[0].localeCompare(b[0])).map(([date,pnl])=>({date,pnl}));
-}
-function calcStats(daily){
-  if(!daily.length) return null;
-  const wins=daily.filter(d=>d.pnl>0),losses=daily.filter(d=>d.pnl<0);
-  const gW=wins.reduce((s,d)=>s+d.pnl,0),gL=Math.abs(losses.reduce((s,d)=>s+d.pnl,0));
-  const total=daily.reduce((s,d)=>s+d.pnl,0);
-  let peak=0,bal=0,maxDD=0;
-  for(const d of daily){bal+=d.pnl;if(bal>peak)peak=bal;if(peak-bal>maxDD)maxDD=peak-bal;}
-  return{winRate:wins.length/daily.length,profitFactor:gL>0?gW/gL:Infinity,totalPnL:total,maxDD,avgDailyPnL:total/daily.length,bestDay:Math.max(...daily.map(d=>d.pnl)),worstDay:Math.min(...daily.map(d=>d.pnl))};
-}
 
 // ─── SIMULATION ───────────────────────────────────────────────────────────────
 function simulateEval(daily,firm,acct){
