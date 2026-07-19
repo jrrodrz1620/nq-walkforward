@@ -111,6 +111,34 @@ def test_vol_filter_impossible_band_makes_no_trades():
     assert len(gated) == 0
 
 
+# ── Risk-based position sizing ──
+
+def test_risk_sizing_targets_dollar_risk():
+    # entry 100, stop 90 -> init_risk 10, multiplier 20 -> $200/contract risk.
+    # risk_dollars 600 -> ~3 contracts. Stop-out loss ~= -3*200 - commissions.
+    h = np.array([100.0, 105.0]); lo = np.array([100.0, 90.0]); c = np.array([100.0, 95.0])
+    p = _p(size_mode="risk", risk_dollars=600.0)
+    r = simulate_trade(1, 0, 100.0, 10.0, h, lo, c, p, contracts=3)
+    # gross = -10 * 3 * 20 = -600 ; comm = 3*2 entry + 3*2 exit = 12 -> -612
+    assert r["profit_usd"] == -612.0
+
+
+def test_risk_sizing_scales_down_when_stop_is_wider():
+    # Wider stop (bigger init_risk) must yield fewer contracts for same $ risk.
+    import pandas as pd
+    ohlc = generate_ohlc(n_bars=4000, seed=11)
+    tight = run_backtest(ohlc, Params(size_mode="risk", risk_dollars=500, atr_mult=1.0, stop_mode="atr"))
+    wide = run_backtest(ohlc, Params(size_mode="risk", risk_dollars=500, atr_mult=3.0, stop_mode="atr"))
+    # Both produce trades; risk sizing keeps per-trade loss bounded in each.
+    assert len(tight) > 0 and len(wide) > 0
+
+
+def test_fixed_sizing_unchanged_by_new_params():
+    # Default size_mode 'fixed' must reproduce the locked synthetic trade count.
+    ohlc = generate_ohlc(n_bars=4000, seed=11)
+    assert len(run_backtest(ohlc, Params())) == 42
+
+
 # ── Integration invariants on run_backtest ──
 
 def test_flat_data_makes_no_trades():

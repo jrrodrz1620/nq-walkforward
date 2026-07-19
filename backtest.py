@@ -50,6 +50,12 @@ class Params:
     vol_lookback: int = 200         # bars used to rank current ATR
     vol_lo_pct: float = 0.0         # skip entries below this ATR percentile
     vol_hi_pct: float = 1.0         # skip entries above this ATR percentile
+    # Position sizing. "fixed" always trades `contracts`. "risk" sizes each
+    # trade so its stop-out costs ~`risk_dollars`, capping per-trade loss and
+    # auto-scaling down when stops are wide (volatile) — the drawdown fix.
+    size_mode: str = "fixed"        # "fixed" | "risk"
+    risk_dollars: float = 500.0     # target $ risked per trade in "risk" mode
+    max_contracts: int = 20         # sizing cap (risk mode)
 
 
 # ─────────────────────────────────────────────
@@ -131,7 +137,8 @@ def _ema(arr: np.ndarray, length: int) -> np.ndarray:
 # ─────────────────────────────────────────────
 
 def simulate_trade(direction: int, entry_i: int, entry_px: float, init_risk: float,
-                   h: np.ndarray, lo: np.ndarray, c: np.ndarray, p: Params) -> dict:
+                   h: np.ndarray, lo: np.ndarray, c: np.ndarray, p: Params,
+                   contracts: float | None = None) -> dict:
     """Walk a single trade forward to its exit and return the realized result.
 
     Pure and self-contained (no structure logic), so the fill rules can be
@@ -139,14 +146,18 @@ def simulate_trade(direction: int, entry_i: int, entry_px: float, init_risk: flo
     intrabar assumption: if a bar touches both the stop and a target, the stop
     fills first. Returns {exit_i, exit_px, profit_usd}.
 
+    `contracts` overrides the position size for this trade (used by risk-based
+    sizing); when None it falls back to ``p.contracts``.
+
     Commissions: charged per contract on entry, and per contract on each exit
     leg (partial and final).
     """
     n = len(c)
+    nc = float(p.contracts if contracts is None else contracts)
     work_stop = entry_px - init_risk if direction > 0 else entry_px + init_risk
-    open_contracts = float(p.contracts)
+    open_contracts = nc
     partial_done = False
-    realized = -p.contracts * p.commission          # entry commission, all contracts
+    realized = -nc * p.commission                   # entry commission, all contracts
     tp1 = entry_px + direction * init_risk
     tp_final = entry_px + direction * init_risk * p.rr_ratio
 
@@ -258,7 +269,12 @@ def run_backtest(ohlc: pd.DataFrame, p: Params = Params()) -> pd.DataFrame:
 
         if direction != 0:
             init_risk = abs(c[i] - stop)
-            res = simulate_trade(direction, i, c[i], init_risk, h, lo, c, p)
+            if p.size_mode == "risk":
+                per_ct = init_risk * p.multiplier
+                nc = max(1, min(p.max_contracts, round(p.risk_dollars / per_ct))) if per_ct > 0 else 1
+            else:
+                nc = p.contracts
+            res = simulate_trade(direction, i, c[i], init_risk, h, lo, c, p, contracts=nc)
             trades.append({
                 "trade_num": len(trades) + 1,
                 "type": "Entry long" if direction > 0 else "Entry short",
