@@ -6,7 +6,8 @@ import plotly.express as px
 import io
 
 from dataio import load_and_clean
-from metrics import split_folds, calc_metrics, monte_carlo
+from metrics import (split_folds, calc_metrics, monte_carlo,
+                     permutation_test, bootstrap_sharpe_ci)
 from backtest import Params, generate_ohlc, load_ohlc_csv, run_backtest
 from sweep import run_sweep, GRID
 from wfo import walk_forward
@@ -316,6 +317,62 @@ def render_analyzer():
             fig_dd.update_layout(template="plotly_dark", height=280, margin=dict(t=30),
                                  title="Max Drawdown Distribution", xaxis_title="Max Drawdown (%)")
             st.plotly_chart(fig_dd, width='stretch')
+
+    st.markdown("---")
+    st.subheader("Significance Tests")
+    st.caption("Permutation: shuffles trade *order* to test whether the equity path "
+               "(path Sharpe, max drawdown) beats random orderings of the same trades. "
+               "Bootstrap: resamples trades to put a confidence interval on the per-trade "
+               "Sharpe. Uses all trades and the simulation count above.")
+    pnl = df["profit_usd"].to_numpy()
+    perm = permutation_test(pnl, starting_capital, n_sims=n_sims)
+    ci = bootstrap_sharpe_ci(pnl, n_boot=n_sims)
+    if perm and ci:
+        s1, s2, s3, s4 = st.columns(4)
+        s1.metric("Path Sharpe p-value", f"{perm['p_value_sharpe']:.2f}",
+                  help="Fraction of shuffles whose path Sharpe beats the real sequence. "
+                       "Near 0 = the real ordering carries signal; near 0.5 = unremarkable; "
+                       "near 1 = random orderings do better.")
+        s2.metric("Max DD p-value", f"{perm['p_value_maxdd']:.2f}",
+                  help="Fraction of shuffles with a shallower (or equal) max drawdown. "
+                       "Near 1 = the real sequence drew down unusually hard — expect "
+                       "streaky, clustered losses.")
+        s3.metric(f"Sharpe {ci['confidence']:.0%} CI",
+                  f"[{ci['ci_lower']:.2f}, {ci['ci_upper']:.2f}]",
+                  help="Bootstrap confidence interval for the per-trade Sharpe. "
+                       "An interval straddling zero means the edge is indistinguishable "
+                       "from noise at this sample size.")
+        s4.metric("P(Sharpe > 0)", f"{ci['prob_positive']:.1%}",
+                  help="Fraction of bootstrap resamples with positive Sharpe.")
+
+        if ci["ci_lower"] > 0:
+            st.success(f"P(Sharpe>0) = {ci['prob_positive']:.1%} and the CI excludes zero "
+                       "— the edge is unlikely to be noise.")
+        elif ci["prob_positive"] >= 0.6:
+            st.warning(f"P(Sharpe>0) = {ci['prob_positive']:.1%} — suggestive, but the CI "
+                       "still includes zero. More trades needed to confirm.")
+        else:
+            st.error(f"P(Sharpe>0) = {ci['prob_positive']:.1%} — the edge is "
+                     "indistinguishable from noise (or negative) at this sample size.")
+
+        cs1, cs2 = st.columns(2)
+        with cs1:
+            fig_perm = go.Figure(go.Histogram(x=perm["sim_sharpes"], nbinsx=40,
+                                              marker_color="#1f77b4"))
+            fig_perm.add_vline(x=perm["actual_sharpe"], line_dash="dash", line_color="white",
+                               annotation_text="actual")
+            fig_perm.update_layout(template="plotly_dark", height=280, margin=dict(t=30),
+                                   title="Path Sharpe Under Shuffled Orderings",
+                                   xaxis_title="Path Sharpe")
+            st.plotly_chart(fig_perm, width='stretch')
+        with cs2:
+            fig_boot = go.Figure(go.Histogram(x=ci["boots"], nbinsx=40,
+                                              marker_color="#ff7f0e"))
+            fig_boot.add_vline(x=0, line_dash="dash", line_color="white")
+            fig_boot.update_layout(template="plotly_dark", height=280, margin=dict(t=30),
+                                   title="Bootstrap Sharpe Distribution",
+                                   xaxis_title="Per-Trade Sharpe")
+            st.plotly_chart(fig_boot, width='stretch')
 
     st.markdown("---")
     st.subheader("Export Results")

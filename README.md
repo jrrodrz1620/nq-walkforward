@@ -8,7 +8,7 @@ around the **Phantom Flow SMC** strategy but works with any TradingView
 
 | File | Run | What it does |
 |------|-----|--------------|
-| `app.py` | `streamlit run app.py` | **Three tabs:** (1) *Walk-Forward Analyzer* — upload a TradingView export → folds, OOS equity, overfit check, metrics (expectancy, R-multiple, payoff, Sharpe, streaks), Monte Carlo; (2) *Parameter Sweep* — interactive overfit map; (3) *Walk-Forward Optimization* — re-optimize per fold + stitched OOS equity. Tabs 2–3 run on synthetic bars or an uploaded OHLC CSV. |
+| `app.py` | `streamlit run app.py` | **Three tabs:** (1) *Walk-Forward Analyzer* — upload a TradingView export → folds, OOS equity, overfit check, metrics (expectancy, R-multiple, payoff, Sharpe, streaks), Monte Carlo, significance tests (permutation p-values + bootstrap Sharpe CI); (2) *Parameter Sweep* — interactive overfit map; (3) *Walk-Forward Optimization* — re-optimize per fold + stitched OOS equity. Tabs 2–3 run on synthetic bars or an uploaded OHLC CSV. |
 | `demo.py` | `python demo.py` | Runs the full analysis pipeline on a synthetic export — no TradingView/browser needed. |
 | `run_backtest.py` | `python run_backtest.py` | Runs the **Phantom Flow SMC strategy logic in Python** over OHLC data, then walk-forward analyzes the real trades. |
 | `sweep.py` | `python sweep.py` | Grid-searches key parameters and plots an **overfit map** (in-sample vs out-of-sample PF) so you keep robust settings, not in-sample winners. |

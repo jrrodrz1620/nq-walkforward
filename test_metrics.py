@@ -43,7 +43,9 @@ def test_permutation_pvalues_in_range_and_deterministic():
     pnl = rng.normal(0, 300, 60)
     a = permutation_test(pnl, CAPITAL, n_sims=500, seed=1)
     b = permutation_test(pnl, CAPITAL, n_sims=500, seed=1)
-    assert a == b
+    scalars = [k for k in a if k != "sim_sharpes"]
+    assert {k: a[k] for k in scalars} == {k: b[k] for k in scalars}
+    assert np.array_equal(a["sim_sharpes"], b["sim_sharpes"])
     assert 0.0 <= a["p_value_sharpe"] <= 1.0
     assert 0.0 <= a["p_value_maxdd"] <= 1.0
 
@@ -82,7 +84,9 @@ def test_bootstrap_ci_brackets_median_and_is_deterministic():
     pnl = rng.normal(20, 250, 100)
     a = bootstrap_sharpe_ci(pnl, n_boot=500, seed=9)
     b = bootstrap_sharpe_ci(pnl, n_boot=500, seed=9)
-    assert a == b
+    scalars = [k for k in a if k != "boots"]
+    assert {k: a[k] for k in scalars} == {k: b[k] for k in scalars}
+    assert np.array_equal(a["boots"], b["boots"])
     assert a["ci_lower"] <= a["median_sharpe"] <= a["ci_upper"]
     assert 0.0 <= a["prob_positive"] <= 1.0
 

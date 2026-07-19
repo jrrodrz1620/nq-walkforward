@@ -227,6 +227,7 @@ def permutation_test(pnl: np.ndarray, capital: float, n_sims: int = 1000,
         "sim_sharpe_p5": float(np.percentile(sim_sharpes, 5)),
         "sim_sharpe_p50": float(np.percentile(sim_sharpes, 50)),
         "sim_sharpe_p95": float(np.percentile(sim_sharpes, 95)),
+        "sim_sharpes": sim_sharpes,
         "n_sims": n_sims,
     }
 
@@ -264,5 +265,6 @@ def bootstrap_sharpe_ci(pnl: np.ndarray, n_boot: int = 1000,
         "median_sharpe": float(np.median(boots)),
         "prob_positive": float((boots > 0).mean()),
         "confidence": confidence,
+        "boots": boots,
         "n_boot": n_boot,
     }
