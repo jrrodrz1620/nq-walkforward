@@ -42,6 +42,14 @@ class Params:
     contracts: int = 2
     multiplier: float = 20.0        # NQ=20, MNQ=2, ES=50, MES=5
     commission: float = 2.0         # $ per contract per side
+    # Volatility regime gate: only enter when the current ATR sits inside a
+    # causal percentile band of its own trailing history. vol_lo_pct screens
+    # out dead-chop (no follow-through); vol_hi_pct screens out the extreme-vol
+    # regime where Phantom Flow's losses clustered (Volmageddon, COVID).
+    use_vol_filter: bool = False
+    vol_lookback: int = 200         # bars used to rank current ATR
+    vol_lo_pct: float = 0.0         # skip entries below this ATR percentile
+    vol_hi_pct: float = 1.0         # skip entries above this ATR percentile
 
 
 # ─────────────────────────────────────────────
@@ -189,6 +197,15 @@ def run_backtest(ohlc: pd.DataFrame, p: Params = Params()) -> pd.DataFrame:
     ema = _ema(c, p.trend_ema)
     L = p.swing_length
 
+    # Causal ATR percentile rank: fraction of the trailing `vol_lookback` bars
+    # whose ATR was <= the current bar's ATR. Uses past bars only (no lookahead).
+    vol_rank = np.full(n, 0.5)
+    if p.use_vol_filter:
+        lb = p.vol_lookback
+        for i in range(1, n):
+            window = atr[max(0, i - lb):i]
+            vol_rank[i] = float(np.mean(window <= atr[i])) if len(window) else 0.5
+
     upper = lower = range_hi = range_lo = np.nan
     armed_long = armed_short = False    # set by a structure shift, fired on pullback
     busy_until = -1                     # bar index through which a trade is open
@@ -225,14 +242,15 @@ def run_backtest(ohlc: pd.DataFrame, p: Params = Params()) -> pd.DataFrame:
         in_prem = (not p.use_location) or np.isnan(equilibrium) or c[i] >= equilibrium
         trend_ok_long = (not p.use_trend) or c[i] > ema[i]
         trend_ok_short = (not p.use_trend) or c[i] < ema[i]
+        vol_ok = (not p.use_vol_filter) or (p.vol_lo_pct <= vol_rank[i] <= p.vol_hi_pct)
 
         direction = 0
-        if armed_long and in_disc and trend_ok_long:
+        if armed_long and in_disc and trend_ok_long and vol_ok:
             stop = c[i] - atr[i] * p.atr_mult if p.stop_mode == "atr" else (
                 (lower - atr[i] * p.struct_buf) if not np.isnan(lower) else c[i] - atr[i] * p.atr_mult)
             if c[i] - stop > 0:
                 direction = 1; armed_long = False
-        elif armed_short and in_prem and trend_ok_short:
+        elif armed_short and in_prem and trend_ok_short and vol_ok:
             stop = c[i] + atr[i] * p.atr_mult if p.stop_mode == "atr" else (
                 (upper + atr[i] * p.struct_buf) if not np.isnan(upper) else c[i] + atr[i] * p.atr_mult)
             if stop - c[i] > 0:

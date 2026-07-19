@@ -85,6 +85,32 @@ def test_no_partial_keeps_full_size_to_target():
     assert r["profit_usd"] == 792.0
 
 
+# ── Volatility regime gate ──
+
+def test_vol_filter_full_band_matches_ungated():
+    # A [0.0, 1.0] band admits every bar, so gating must be a no-op.
+    ohlc = generate_ohlc(n_bars=4000, seed=11)
+    base = run_backtest(ohlc, Params())
+    full = run_backtest(ohlc, Params(use_vol_filter=True, vol_lo_pct=0.0, vol_hi_pct=1.0))
+    assert len(base) == len(full)
+    assert (base["entry_time"].to_numpy() == full["entry_time"].to_numpy()).all()
+
+
+def test_vol_filter_narrow_band_reduces_trades():
+    # A restrictive mid-band must admit no more entries than ungated.
+    ohlc = generate_ohlc(n_bars=4000, seed=11)
+    base = run_backtest(ohlc, Params())
+    gated = run_backtest(ohlc, Params(use_vol_filter=True, vol_lo_pct=0.4, vol_hi_pct=0.6))
+    assert len(gated) <= len(base)
+
+
+def test_vol_filter_impossible_band_makes_no_trades():
+    # lo > hi admits nothing -> no entries can fire.
+    ohlc = generate_ohlc(n_bars=4000, seed=11)
+    gated = run_backtest(ohlc, Params(use_vol_filter=True, vol_lo_pct=0.9, vol_hi_pct=0.1))
+    assert len(gated) == 0
+
+
 # ── Integration invariants on run_backtest ──
 
 def test_flat_data_makes_no_trades():
