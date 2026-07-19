@@ -1,0 +1,81 @@
+{
+  "bars": 6000,
+  "variants": [
+    {
+      "label": "A1 defaults (partial on)",
+      "n_trades": 68,
+      "overall": {
+        "n_trades": 68.0,
+        "net_profit": -9556.11,
+        "win_rate": 35.2941,
+        "avg_win": 1018.085,
+        "avg_loss": -772.5034,
+        "profit_factor": 0.7189,
+        "max_dd": -16.2499,
+        "return_pct": -13.2724,
+        "expectancy": -140.531,
+        "payoff": 1.3179,
+        "sharpe": -0.136,
+        "avg_r": -0.1819,
+        "total_r": -12.3703,
+        "max_win_streak": 6.0,
+        "max_loss_streak": 7.0
+      },
+      "walk_forward": {
+        "folds": 5,
+        "oos_trades": 21,
+        "train_pf": 0.788,
+        "oos_pf": 0.582,
+        "oos_net": -4752.39,
+        "ratio": 0.739
+      },
+      "monte_carlo": {
+        "final_p5": 48678.66,
+        "final_p50": 61918.81,
+        "final_p95": 76394.99,
+        "maxdd_p5": -34.05,
+        "maxdd_p50": -18.96,
+        "maxdd_p95": -8.34,
+        "prob_loss": 87.3
+      }
+    },
+    {
+      "label": "A2 like-for-like (partial off, $2.25 comm)",
+      "n_trades": 68,
+      "overall": {
+        "n_trades": 68.0,
+        "net_profit": -13379.65,
+        "win_rate": 13.2353,
+        "avg_win": 2309.9444,
+        "avg_loss": -579.1381,
+        "profit_factor": 0.6084,
+        "max_dd": -21.9311,
+        "return_pct": -18.5828,
+        "expectancy": -196.7596,
+        "payoff": 3.9886,
+        "sharpe": -0.17,
+        "avg_r": -0.3397,
+        "total_r": -23.1027,
+        "max_win_streak": 1.0,
+        "max_loss_streak": 14.0
+      },
+      "walk_forward": {
+        "folds": 5,
+        "oos_trades": 21,
+        "train_pf": 0.694,
+        "oos_pf": 0.439,
+        "oos_net": -6409.98,
+        "ratio": 0.633
+      },
+      "monte_carlo": {
+        "final_p5": 43517.81,
+        "final_p50": 57943.82,
+        "final_p95": 75069.85,
+        "maxdd_p5": -40.48,
+        "maxdd_p50": -24.19,
+        "maxdd_p95": -10.83,
+        "prob_loss": 91.75
+      }
+    }
+  ]
+}

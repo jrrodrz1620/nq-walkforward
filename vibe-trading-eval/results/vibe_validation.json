@@ -1,0 +1,84 @@
+{
+  "monte_carlo": {
+    "actual_sharpe": -1.3119,
+    "actual_max_dd": -0.0811,
+    "p_value_sharpe": 0.758,
+    "p_value_max_dd": 0.415,
+    "simulated_sharpe_mean": -1.2351,
+    "simulated_sharpe_std": 0.261,
+    "simulated_sharpe_p5": -1.8568,
+    "simulated_sharpe_p95": -0.9642,
+    "n_simulations": 2000,
+    "n_trades": 68
+  },
+  "bootstrap": {
+    "observed_sharpe": -0.1527,
+    "ci_lower": -0.5584,
+    "ci_upper": 0.2724,
+    "median_sharpe": -0.1518,
+    "prob_positive": 0.237,
+    "confidence": 0.95,
+    "n_bootstrap": 1000
+  },
+  "walk_forward": {
+    "n_windows": 5,
+    "windows": [
+      {
+        "window": 1,
+        "start": "2024-01-02",
+        "end": "2024-01-14",
+        "return": -0.027181,
+        "sharpe": -0.316,
+        "max_dd": -0.055861,
+        "trades": 16,
+        "win_rate": 0.375
+      },
+      {
+        "window": 2,
+        "start": "2024-01-14",
+        "end": "2024-01-27",
+        "return": -0.021104,
+        "sharpe": -0.3741,
+        "max_dd": -0.043067,
+        "trades": 14,
+        "win_rate": 0.3571
+      },
+      {
+        "window": 3,
+        "start": "2024-01-27",
+        "end": "2024-02-08",
+        "return": -0.001857,
+        "sharpe": -0.0221,
+        "max_dd": -0.02875,
+        "trades": 13,
+        "win_rate": 0.5385
+      },
+      {
+        "window": 4,
+        "start": "2024-02-08",
+        "end": "2024-02-21",
+        "return": 0.00075,
+        "sharpe": 0.0185,
+        "max_dd": -0.046787,
+        "trades": 12,
+        "win_rate": 0.3333
+      },
+      {
+        "window": 5,
+        "start": "2024-02-21",
+        "end": "2024-03-04",
+        "return": 0.000529,
+        "sharpe": 0.0163,
+        "max_dd": -0.023744,
+        "trades": 13,
+        "win_rate": 0.5385
+      }
+    ],
+    "profitable_windows": 2,
+    "consistency_rate": 0.4,
+    "return_mean": -0.009773,
+    "return_std": 0.011924,
+    "sharpe_mean": -0.1355,
+    "sharpe_std": 0.1727
+  }
+}

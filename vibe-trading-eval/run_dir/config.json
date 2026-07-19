@@ -1,0 +1,15 @@
+{
+  "codes": ["NQ.CME"],
+  "start_date": "2024-01-01",
+  "end_date": "2024-03-10",
+  "source": "local",
+  "interval": "15m",
+  "engine": "daily",
+  "initial_cash": 72000,
+  "slippage": 0.0,
+  "validation": {
+    "monte_carlo": {"n_simulations": 2000, "seed": 42},
+    "bootstrap": {"n_bootstrap": 1000, "confidence": 0.95, "seed": 42},
+    "walk_forward": {"n_windows": 5}
+  }
+}

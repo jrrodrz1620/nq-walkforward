@@ -1,0 +1,11 @@
+sources:
+  - symbol: "NQ.CME"
+    type: csv
+    path: "/home/user/vibe-eval/data/nq_bars.csv"
+    columns:
+      date: "time"
+      open: "open"
+      high: "high"
+      low: "low"
+      close: "close"
+      volume: "volume"
