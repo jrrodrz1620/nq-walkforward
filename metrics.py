@@ -168,3 +168,101 @@ def monte_carlo(pnl: np.ndarray, capital: float, n_sims: int = 1000,
         "finals": finals,
         "max_dds": max_dds,
     }
+
+
+# ─────────────────────────────────────────────
+# SIGNIFICANCE TESTS
+# ─────────────────────────────────────────────
+
+def _path_stats(pnl: np.ndarray, capital: float) -> tuple[float, float]:
+    """Path Sharpe (per-step, not annualized) and max drawdown % of an equity path."""
+    equity = capital + np.cumsum(pnl)
+    if len(equity) > 1:
+        rets = np.diff(equity) / equity[:-1]
+        std = rets.std(ddof=1)
+        sharpe = float(rets.mean() / std) if std > 0 else 0.0
+    else:
+        sharpe = 0.0
+    peak = np.maximum.accumulate(equity)
+    dd = (equity - peak) / np.where(peak > 0, peak, 1.0) * 100
+    return sharpe, float(dd.min())
+
+
+def permutation_test(pnl: np.ndarray, capital: float, n_sims: int = 1000,
+                     seed: int | None = 42) -> dict:
+    """Shuffle trade *order* to test whether the observed path is special.
+
+    The trade sum is order-independent, but the equity *path* is not: path
+    Sharpe and max drawdown both depend on sequencing. Null hypothesis: the
+    observed path is no better than a random ordering of the same trades.
+
+    p_value_sharpe: fraction of shuffles whose path Sharpe >= observed.
+    p_value_maxdd: fraction of shuffles whose max drawdown is shallower or
+    equal (less negative = better). Values near 1 mean random orderings beat
+    the real sequence; values near 0 mean the real sequencing carries signal
+    (e.g. streaks/regime clustering rather than i.i.d. outcomes).
+    """
+    pnl = np.asarray(pnl, dtype=float)
+    if len(pnl) < 3:
+        return {}
+
+    actual_sharpe, actual_maxdd = _path_stats(pnl, capital)
+
+    rng = np.random.default_rng(seed)
+    sim_sharpes = np.empty(n_sims)
+    sharpe_beat = dd_beat = 0
+    for i in range(n_sims):
+        sharpe, maxdd = _path_stats(rng.permutation(pnl), capital)
+        sim_sharpes[i] = sharpe
+        if sharpe >= actual_sharpe:
+            sharpe_beat += 1
+        if maxdd >= actual_maxdd:
+            dd_beat += 1
+
+    return {
+        "actual_sharpe": actual_sharpe,
+        "actual_maxdd": actual_maxdd,
+        "p_value_sharpe": sharpe_beat / n_sims,
+        "p_value_maxdd": dd_beat / n_sims,
+        "sim_sharpe_p5": float(np.percentile(sim_sharpes, 5)),
+        "sim_sharpe_p50": float(np.percentile(sim_sharpes, 50)),
+        "sim_sharpe_p95": float(np.percentile(sim_sharpes, 95)),
+        "n_sims": n_sims,
+    }
+
+
+def bootstrap_sharpe_ci(pnl: np.ndarray, n_boot: int = 1000,
+                        confidence: float = 0.95,
+                        seed: int | None = 42) -> dict:
+    """Bootstrap a confidence interval for the per-trade Sharpe ratio.
+
+    Resamples trades with replacement and recomputes the same statistic
+    calc_metrics reports (mean / std of trade PnL, not annualized), giving an
+    interval for it plus prob_positive — the fraction of resamples with
+    Sharpe > 0. A CI straddling zero means the edge is indistinguishable
+    from noise at this sample size.
+    """
+    pnl = np.asarray(pnl, dtype=float)
+    if len(pnl) < 5:
+        return {}
+
+    def _sharpe(x: np.ndarray) -> float:
+        s = x.std(ddof=1)
+        return float(x.mean() / s) if s > 0 else 0.0
+
+    observed = _sharpe(pnl)
+    rng = np.random.default_rng(seed)
+    boots = np.empty(n_boot)
+    for i in range(n_boot):
+        boots[i] = _sharpe(rng.choice(pnl, size=len(pnl), replace=True))
+
+    alpha = (1 - confidence) / 2
+    return {
+        "observed_sharpe": observed,
+        "ci_lower": float(np.percentile(boots, alpha * 100)),
+        "ci_upper": float(np.percentile(boots, (1 - alpha) * 100)),
+        "median_sharpe": float(np.median(boots)),
+        "prob_positive": float((boots > 0).mean()),
+        "confidence": confidence,
+        "n_boot": n_boot,
+    }

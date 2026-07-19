@@ -16,7 +16,8 @@ import numpy as np
 import pandas as pd
 
 from backtest import Params, generate_ohlc, load_ohlc_csv, run_backtest
-from metrics import split_folds, calc_metrics, monte_carlo
+from metrics import (split_folds, calc_metrics, monte_carlo,
+                     permutation_test, bootstrap_sharpe_ci)
 
 CAPITAL = 50000.0
 
@@ -76,7 +77,18 @@ def main() -> None:
     mc = monte_carlo(trades["profit_usd"].to_numpy(), CAPITAL, n_sims=2000)
     print("── MONTE CARLO (2000 bootstraps) ─────────")
     print(f"  Final equity  p5 ${mc['final_p5']:,.0f} | p50 ${mc['final_p50']:,.0f} | p95 ${mc['final_p95']:,.0f}")
-    print(f"  Max drawdown  p95 {mc['maxdd_p95']:.1f}%   P(loss) {mc['prob_loss']:.1f}%")
+    print(f"  Max drawdown  p95 {mc['maxdd_p95']:.1f}%   P(loss) {mc['prob_loss']:.1f}%\n")
+
+    pnl = trades["profit_usd"].to_numpy()
+    perm = permutation_test(pnl, CAPITAL, n_sims=2000)
+    ci = bootstrap_sharpe_ci(pnl, n_boot=2000)
+    if perm and ci:
+        print("── SIGNIFICANCE ──────────────────────────")
+        print(f"  Permutation   path Sharpe {perm['actual_sharpe']:.3f}"
+              f"  p={perm['p_value_sharpe']:.2f}   maxDD {perm['actual_maxdd']:.1f}%"
+              f"  p={perm['p_value_maxdd']:.2f}")
+        print(f"  Sharpe {ci['confidence']:.0%} CI [{ci['ci_lower']:.2f}, {ci['ci_upper']:.2f}]"
+              f"   P(Sharpe>0) {ci['prob_positive']:.1%}")
 
     if args.xlsx:
         export = trades.rename(columns={
