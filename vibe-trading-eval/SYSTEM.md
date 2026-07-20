@@ -46,6 +46,23 @@ grows it, clamped to [0.5x, 2.0x].
    sugar) still lost OOS — instrument-level past performance does not persist.
    Hence: fixed a-priori basket, one per bucket, never performance-picked.
 
+## Data refresh (the blocking prerequisite — do this first)
+
+The validation data ends **2020-05-14**, and this environment's network policy
+blocks every market-data host, so the refresh needs data you export yourself.
+Fastest path: TradingView daily charts → "Export chart data" for each CORE_9
+symbol (suggested tickers in `refresh_data.py`'s docstring), drop the CSVs in
+a folder, then:
+
+    python refresh_data.py <export_dir>   # validates + append-merges each file
+    python trend_system.py oos            # re-validate including the new era
+
+`refresh_data.py` rejects files that fail OHLC sanity checks, never rewrites
+history (append-only past the last stored bar), and prints an overlap
+diagnostic — if the median close difference on shared days is large, your
+export is on a different price basis (futures vs CFD) and must be reviewed
+before trusting the merged series.
+
 ## Operating procedure
 
 1. Each day after the daily close, update the per-instrument OHLC CSVs.
