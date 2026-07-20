@@ -124,6 +124,10 @@ def run_tf(ohlc: pd.DataFrame, p: TFParams = TFParams()) -> pd.DataFrame:
 
         gross = (exit_px - entry_px) * direction * nc * p.multiplier
         profit = gross - 2 * nc * p.commission
+        # R-multiple: P&L in units of initial risk, instrument-agnostic. Lets a
+        # multi-instrument portfolio combine trades with different price scales
+        # and contract specs on a common risk basis.
+        r_multiple = (exit_px - entry_px) * direction / init_risk
         trades.append({
             "trade_num": len(trades) + 1,
             "type": "Entry long" if direction > 0 else "Entry short",
@@ -133,11 +137,12 @@ def run_tf(ohlc: pd.DataFrame, p: TFParams = TFParams()) -> pd.DataFrame:
             "entry_price": float(entry_px),
             "exit_price": float(exit_px),
             "profit_usd": round(float(profit), 2),
+            "r_multiple": round(float(r_multiple), 4),
         })
         i = exit_i + 1
 
     cols = ["trade_num", "type", "signal", "entry_time", "exit_time",
-            "entry_price", "exit_price", "profit_usd"]
+            "entry_price", "exit_price", "profit_usd", "r_multiple"]
     return pd.DataFrame(trades, columns=cols)
 
 
