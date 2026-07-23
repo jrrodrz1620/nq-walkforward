@@ -1,0 +1,6 @@
+{
+  "name": "garch-method",
+  "version": "1.0.0",
+  "description": "Volatility forecasting + position sizing via walk-forward GARCH(1,1). Answers 'how much' — never 'which way'. Vol forecasts, storm/calm regimes, vol-targeted sizing, and an honest fixed-vs-vol-targeted backtest harness for any strategy.",
+  "author": { "name": "Miles Deutscher" }
+}

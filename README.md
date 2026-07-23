@@ -61,6 +61,27 @@ that sit on/above the diagonal **with a healthy trade count**.
 pip install -r requirements.txt
 ```
 
+## GARCH Method skill — position sizing
+
+Vendored from the [`garchmethod`](https://github.com/milesdeutscher/garchmethod)
+Claude Code plugin (MIT, © Miles Deutscher — see `skills/garch/LICENSE`). It
+answers *how much* to size a position — never *which way* — via walk-forward
+GARCH(1,1) volatility forecasting, and pairs naturally with the walk-forward
+tooling above. The skill (`skills/garch/SKILL.md`) loads automatically in Claude
+Code sessions for this repo; the scripts run standalone with
+[`uv`](https://docs.astral.sh/uv/) — dependencies resolve from inline metadata,
+nothing to install:
+
+```bash
+uv run scripts/garch_forecast.py --csv prices.csv --json   # 1-day vol forecast + regime
+uv run scripts/vol_target.py     --csv prices.csv --target-vol 15 --json   # size multiplier
+uv run scripts/compare.py        --csv prices.csv --chart equity.png       # fixed vs vol-targeted
+```
+
+`--ticker BTC-USD` works too (via yfinance). `garch-method.md` is the plugin's
+original zero-trust onboarding prompt. Use `--periods-per-year 252` for equities
+(the default 365 assumes crypto).
+
 ## Strategy source
 
 The Pine indicator and strategy live in the companion `pinescript-agents` repo

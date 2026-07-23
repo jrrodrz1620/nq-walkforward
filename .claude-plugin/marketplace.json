@@ -1,0 +1,11 @@
+{
+  "name": "garchmethod",
+  "owner": { "name": "Miles Deutscher" },
+  "plugins": [
+    {
+      "name": "garch-method",
+      "source": "./",
+      "description": "Episode 1 — The Nobel Prize volatility model. GARCH(1,1) walk-forward vol forecasts, storm/calm regimes, and vol-targeted position sizing."
+    }
+  ]
+}
