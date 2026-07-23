@@ -249,10 +249,11 @@ def run_backtest(ohlc: pd.DataFrame, p: Params = Params()) -> pd.DataFrame:
                 "exit_time": pd.Timestamp(t[res["exit_i"]]),
                 "entry_price": float(c[i]),
                 "exit_price": res["exit_px"],
+                "stop_pts": round(init_risk, 4),   # initial stop distance in points
                 "profit_usd": res["profit_usd"],
             })
             busy_until = res["exit_i"]
 
     cols = ["trade_num", "type", "signal", "entry_time", "exit_time",
-            "entry_price", "exit_price", "profit_usd"]
+            "entry_price", "exit_price", "stop_pts", "profit_usd"]
     return pd.DataFrame(trades, columns=cols)
