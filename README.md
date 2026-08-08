@@ -13,6 +13,7 @@ around the **Phantom Flow SMC** strategy but works with any TradingView
 | `run_backtest.py` | `python run_backtest.py` | Runs the **Phantom Flow SMC strategy logic in Python** over OHLC data, then walk-forward analyzes the real trades. |
 | `sweep.py` | `python sweep.py` | Grid-searches key parameters and plots an **overfit map** (in-sample vs out-of-sample PF) so you keep robust settings, not in-sample winners. |
 | `wfo.py` | `python wfo.py` | **Walk-forward optimization**: re-optimizes params on each train window, trades them on the next OOS window, stitches the OOS equity. The optimism gap (train PF → OOS PF) is the real robustness signal. |
+| `wf_analyze_export.py` | `python wf_analyze_export.py trades.csv` | **One-command audit of a real TradingView export**: overall metrics, walk-forward folds (train PF vs OOS test PF + optimism gap), Monte Carlo, profit concentration (is it one lucky trade?), slippage sensitivity (break-even pts/leg), and P&L by hour-of-day. `--chart eq.png` writes an equity+drawdown plot; `--point-value` sets $/pt/contract for slippage (CFD≈1, E-mini NQ=20). |
 | `test_backtest.py` | `python test_backtest.py` *or* `pytest` | Unit tests for the fill logic (target/stop/partial/breakeven) + run_backtest invariants. |
 
 ### Backtest harness
