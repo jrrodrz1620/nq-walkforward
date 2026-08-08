@@ -65,21 +65,41 @@ def _stats(pnl: np.ndarray, capital: float) -> dict:
             "sharpe": sharpe, "maxdd": maxdd, "final": float(eq[-1])}
 
 
+def _load_daily_prices(prices_csv: str) -> pd.DataFrame:
+    """Load a real daily price series (date + close columns, any casing)."""
+    raw = pd.read_csv(prices_csv)
+    cols = {c.lower().strip(): c for c in raw.columns}
+    dcol = next((cols[k] for k in ("date", "time", "timestamp") if k in cols), raw.columns[0])
+    ccol = next((cols[k] for k in ("close", "price", "adj close", "adj_close") if k in cols),
+                raw.columns[1])
+    out = raw[[dcol, ccol]].copy()
+    out.columns = ["date", "close"]
+    out["date"] = pd.to_datetime(out["date"]).dt.normalize()
+    out = out.dropna().sort_values("date").reset_index(drop=True)
+    return out[out["close"] > 0]
+
+
 def review(csv_path: str, capital: float, targets: list[float], min_train: int,
-           regime_lookback: int, periods_per_year: int) -> dict:
+           regime_lookback: int, periods_per_year: int, prices_csv: str | None = None) -> dict:
     df = load_and_clean(csv_path, contract_multiplier=1.0)
     if df.empty:
         raise SystemExit("No trades parsed — is this a TradingView List of Trades export?")
     df = df.copy()
     df["date"] = pd.to_datetime(df["entry_time"]).dt.normalize()
 
-    if "entry_price" not in df.columns:
-        raise SystemExit("Export has no price column — cannot build a price proxy.")
-
-    # 1) daily close proxy from trade prices
-    daily = (df.groupby(df["date"])["entry_price"].last()
-               .reset_index().sort_values("date").reset_index(drop=True))
-    daily.columns = ["date", "close"]
+    # 1) price series for GARCH: prefer real daily bars, else proxy from trade prices.
+    #    The proxy is fine for high-frequency strategies (many trades/day of coverage)
+    #    but too sparse for low-frequency ones (breakout/swing) — pass --prices there.
+    if prices_csv:
+        daily = _load_daily_prices(prices_csv)
+        price_source = f"real daily bars ({prices_csv})"
+    else:
+        if "entry_price" not in df.columns:
+            raise SystemExit("Export has no price column — pass --prices with daily bars.")
+        daily = (df.groupby(df["date"])["entry_price"].last()
+                   .reset_index().sort_values("date").reset_index(drop=True))
+        daily.columns = ["date", "close"]
+        price_source = "trade-price proxy (approximate; pass --prices for real bars)"
 
     # 2) walk-forward GARCH (regime lookback shortened so it classifies short series)
     gf.REGIME_LOOKBACK = regime_lookback
@@ -119,7 +139,7 @@ def review(csv_path: str, capital: float, targets: list[float], min_train: int,
     verdict = _verdict(best_sharpe_gain, regimes)
 
     report = {
-        "file": csv_path, "capital": capital,
+        "file": csv_path, "capital": capital, "price_source": price_source,
         "trades_total": int(len(df)), "trades_with_forecast": int(len(merged)),
         "forecast_days": int(len(res)),
         "regime_counts": {str(k): int(v) for k, v in
@@ -159,6 +179,7 @@ def _verdict(best_sharpe_gain: float, regimes: list[dict]) -> str:
 
 def _print(r: dict):
     print(f"\n{'='*64}\n  {r['file']}")
+    print(f"  price source: {r['price_source']}")
     print(f"  {r['trades_with_forecast']} of {r['trades_total']} trades had a GARCH "
           f"forecast   |   {r['forecast_days']} forecast days")
     print(f"  regime days: {r['regime_counts']}")
@@ -201,12 +222,15 @@ def main():
                     help="window for vol percentile / regime (default 126 ~ 6mo)")
     ap.add_argument("--periods-per-year", type=int, default=252,
                     help="252 for index/futures (default), 365 for crypto")
+    ap.add_argument("--prices", help="CSV of real daily bars (date,close) to use for "
+                    "GARCH instead of the trade-price proxy — needed for low-frequency "
+                    "(breakout/swing) strategies")
     ap.add_argument("--json", help="write full report JSON here")
     args = ap.parse_args()
 
     targets = [float(x) for x in args.targets.split(",") if x.strip()]
     report = review(args.export, args.capital, targets, args.min_train,
-                    args.regime_lookback, args.periods_per_year)
+                    args.regime_lookback, args.periods_per_year, prices_csv=args.prices)
     if args.json:
         with open(args.json, "w") as f:
             json.dump(report, f, indent=2, default=str)
