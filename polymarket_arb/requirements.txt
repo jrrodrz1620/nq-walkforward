@@ -1,0 +1,9 @@
+# Runtime dependencies for the Polymarket latency arbitrage bot (Python 3.11+).
+# Install with:  pip install -r polymarket_arb/requirements.txt
+py-clob-client>=0.34.0
+websockets>=12.0
+httpx>=0.27.0
+rich>=13.0.0
+
+# Development / tests:
+#   pip install pytest pytest-asyncio

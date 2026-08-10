@@ -8,3 +8,10 @@ sweep_overfit.png
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# polymarket_arb runtime artifacts
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.log
+*.log.[0-9]

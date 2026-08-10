@@ -49,6 +49,13 @@ that sit on/above the diagonal **with a healthy trade count**.
   window and trades them forward. This is the harder, more honest test — if the
   best train params keep changing and OOS lags train badly, the edge is fragile.
 
+## Also in this repo
+
+- [`polymarket_arb/`](polymarket_arb/README.md) — a standalone latency
+  arbitrage bot for Polymarket's BTC/ETH 5- and 15-minute up/down contracts,
+  priced against a live Binance feed. Paper trades by default; live trading is
+  behind three separate confirmations. `python -m polymarket_arb`
+
 ## Modules
 
 - `dataio.py` — TradingView export loader (importable/testable).
